@@ -89,7 +89,8 @@ simple_input_keys = [
     "wage_inc", "inflation", "lnk_pct", "cac", "equity", "loan", 
     "loan_rate", "loan_years", "capex_annual", "depreciation", 
     "dso", "dpo", "tax_rate", "price_laptop", "price_phone", 
-    "price_car", "price_truck", "price_desk"
+    "price_car", "price_truck", "price_desk", 
+    "target_rev_per_fte" # NEU: Skalierungs-Parameter
 ]
 
 with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=False):
@@ -158,7 +159,22 @@ with tab_input:
 # --- TAB 2: JOBS & RESSOURCEN ---
 with tab_res:
     st.header("Personal & Assets")
-    st.info("Hier können Sie bis zu 15 Positionen definieren. Nicht benötigte Positionen einfach mit 0 FTE/Gehalt stehen lassen.")
+    
+    # NEUER BEREICH: Skalierungsparameter
+    st.subheader("⚙️ Skalierung & Produktivität")
+    col_scale1, col_scale2 = st.columns([1, 2])
+    with col_scale1:
+        target_rev_per_fte = st.number_input(
+            "Ziel-Umsatz je FTE (€/Jahr)", 
+            value=150000.0, 
+            step=5000.0, 
+            key="target_rev_per_fte",
+            help="Dieser Wert steuert, wie viele Mitarbeiter eingestellt werden. Beispiel: Bei 1 Mio € Umsatz und 200k € Ziel/FTE benötigt die Firma 5 Mitarbeiter."
+        )
+    with col_scale2:
+        st.info("Das Modell nutzt diesen Wert, um den Personalbedarf in den Folgejahren zu berechnen. Im Jahr 1 gilt die unten definierte 'Start-Mannschaft'.")
+
+    st.markdown("---")
     
     col_r1, col_r2 = st.columns([1, 2])
     
@@ -175,6 +191,7 @@ with tab_res:
         
     with col_r2:
         st.subheader("Job Definitionen (15 Slots)")
+        st.caption("FTE Start = Mitarbeiter im Jahr 1. Jahresgehalt = Brutto ohne Nebenkosten.")
         
         # DataFrame aus State laden
         df_edit = st.session_state["current_jobs_df"].copy()
@@ -187,7 +204,7 @@ with tab_res:
         # Editor auf "fixed" Zeilenanzahl setzen
         edited_jobs = st.data_editor(
             df_edit,
-            num_rows="fixed",  # KEIN Hinzufügen/Löschen möglich
+            num_rows="fixed",
             use_container_width=True,
             key="job_editor_widget",
             column_config={
@@ -211,9 +228,6 @@ jobs_config = edited_jobs.to_dict(orient="records")
 valid_jobs = []
 
 for job in jobs_config:
-    # Nur Jobs mit FTE > 0 ODER Gehalt > 0 berücksichtigen (um leere Platzhalter im Chart auszublenden)
-    # Oder wir nehmen alles, wo ein Titel steht, aber berechnen nur, wenn Werte da sind.
-    
     # 2. Werte sicher parsen
     job["FTE Jahr 1"] = safe_float(job.get("FTE Jahr 1"))
     job["Jahresgehalt (€)"] = safe_float(job.get("Jahresgehalt (€)"))
@@ -245,10 +259,9 @@ CHURN = st.session_state.get("churn", 10.0) / 100.0
 N_start = 10.0 
 revenue_y1 = N_start * ARPU * (1 - discount_total/100)
 
-if total_fte_y1 > 0:
-    revenue_per_fte_benchmark = revenue_y1 / total_fte_y1
-else:
-    revenue_per_fte_benchmark = 0 
+# ZIEL-PRODUKTIVITÄT:
+# Hier nehmen wir jetzt den User-Input, statt es aus Jahr 1 abzuleiten
+revenue_per_fte_benchmark = target_rev_per_fte
 
 # Kreditplan
 loan_df = calculate_loan_schedule(loan_amount, loan_rate, int(loan_years))
@@ -278,7 +291,7 @@ for t in range(1, 11):
     net_rev = n_t * ARPU * (1 - discount_total/100)
     row["Umsatz"] = net_rev
     
-    # Personalziel
+    # Personalziel (Global)
     if revenue_per_fte_benchmark > 0:
         target_total_fte = net_rev / revenue_per_fte_benchmark
     else:
@@ -296,27 +309,28 @@ for t in range(1, 11):
         role = job["Job Titel"]
         base_fte = job["FTE Jahr 1"]
         
-        # Nur berechnen, wenn im Basisjahr auch jemand da ist, sonst kann nichts skalieren
-        # (Oder wenn wir 0 haben, bleibt es 0)
-        if base_fte <= 0:
-            curr_fte = 0
-        elif t == 1:
+        # Logik: Im Jahr 1 gilt die Eingabe "Start-Mannschaft".
+        # In Folgejahren skalieren wir basierend auf dem Umsatz-Ziel.
+        
+        if t == 1:
             curr_fte = base_fte
         else:
-            share = base_fte / total_fte_y1 if total_fte_y1 > 0 else 0
-            req = target_total_fte * share
-            # Ratchet
-            curr_fte = max(req, prev_ftes_by_role.get(role, 0))
+            if base_fte > 0 and total_fte_y1 > 0:
+                # Anteil der Rolle an der Gesamtbelegschaft
+                share = base_fte / total_fte_y1
+                # Ziel für diese Rolle basierend auf Global-Ziel
+                req = target_total_fte * share
+                # Ratchet: Nicht unter Vorjahr fallen
+                curr_fte = max(req, prev_ftes_by_role.get(role, 0))
+            else:
+                curr_fte = 0.0
             
         current_ftes_by_role[role] = curr_fte
         total_fte_this_year += curr_fte
         
-        # Spalte nur schreiben, wenn relevant (FTE > 0) um Chart sauber zu halten
         if curr_fte > 0:
             row[f"FTE {role}"] = curr_fte
         else:
-            # Damit Pandas nicht meckert, falls Spalte mal da mal nicht, 
-            # schreiben wir 0 rein, aber filtern es beim Chart später vllt raus
             row[f"FTE {role}"] = 0.0
         
         # Kosten

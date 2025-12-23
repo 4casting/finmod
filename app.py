@@ -113,7 +113,6 @@ def create_pdf(df_results, inputs, jobs_df):
 
     # 2. GuV
     cols = ["Umsatz", "Gesamtkosten (OPEX)", "EBITDA", "Abschreibungen", "EBIT", "Zinsaufwand", "Steuern", "Jahresüberschuss"]
-    # Sicherstellen, dass Spalten existieren
     existing_cols = [c for c in cols if c in df_results.columns]
     if existing_cols:
         pdf.add_table(df_results.set_index("Jahr")[existing_cols].T, "Gewinn- und Verlustrechnung (GuV)")
@@ -125,12 +124,27 @@ def create_pdf(df_results, inputs, jobs_df):
     if existing_cf:
         pdf.add_table(df_results.set_index("Jahr")[existing_cf].T, "Kapitalflussrechnung")
 
-    # 4. Bilanz
+    # 4. Bilanz (GETRENNT)
     pdf.add_page()
-    bil_cols = ["Anlagevermögen", "Kasse", "Forderungen", "Summe Aktiva", "Eigenkapital", "Bankdarlehen", "Verb. LL", "Summe Passiva"]
-    existing_bil = [c for c in bil_cols if c in df_results.columns]
-    if existing_bil:
-        pdf.add_table(df_results.set_index("Jahr")[existing_bil].T, "Bilanz")
+    pdf.chapter_title("Bilanz")
+    
+    # Aktiva
+    aktiva_cols = ["Anlagevermögen", "Kasse", "Forderungen", "Summe Aktiva"]
+    existing_akt = [c for c in aktiva_cols if c in df_results.columns]
+    if existing_akt:
+        pdf.set_font('Arial', 'B', 10)
+        pdf.cell(0, 10, "Aktiva (Mittelverwendung)", 0, 1)
+        pdf.add_table(df_results.set_index("Jahr")[existing_akt].T)
+    
+    pdf.ln(5)
+    
+    # Passiva
+    passiva_cols = ["Eigenkapital", "Bankdarlehen", "Verb. LL", "Summe Passiva"]
+    existing_pass = [c for c in passiva_cols if c in df_results.columns]
+    if existing_pass:
+        pdf.set_font('Arial', 'B', 10)
+        pdf.cell(0, 10, "Passiva (Mittelherkunft)", 0, 1)
+        pdf.add_table(df_results.set_index("Jahr")[existing_pass].T)
 
     # 5. Charts
     pdf.add_page()
@@ -189,7 +203,6 @@ with st.expander("📂 Datei Speichern & Laden (Import/Export)", expanded=True):
                 except Exception as e: st.error(f"Fehler: {e}")
 
 # --- TABS ---
-# HIER WIEDERHERGESTELLT: Eigener Reiter für Abschreibungen/Assets
 tab_input, tab_assets, tab_jobs, tab_dash, tab_guv, tab_cf, tab_bilanz = st.tabs([
     "📝 Markt & Finanzen", "📉 Abschreibungen & Assets", "👥 Personal & Jobs", "📊 Dashboard", "📑 GuV", "💰 Cashflow", "⚖️ Bilanz"
 ])
@@ -226,11 +239,9 @@ with tab_input:
         st.number_input("Steuersatz %", key="tax_rate")
         st.number_input("Marketing CAC (€)", key="cac")
 
-# --- TAB 2: ABSCHREIBUNGEN (WIEDERHERGESTELLT) ---
+# --- TAB 2: ABSCHREIBUNGEN ---
 with tab_assets:
     st.header("Asset Management & AfA")
-    st.markdown("Definieren Sie hier Preise und **Nutzungsdauer** für die automatische Wiederbeschaffung.")
-    
     col_a1, col_a2, col_a3 = st.columns(3)
     
     with col_a1:
@@ -266,7 +277,6 @@ with tab_jobs:
         
     st.subheader("Job Definitionen (15 Slots)")
     df_edit = st.session_state["current_jobs_df"].copy()
-    # Typen erzwingen
     for c in ["Jahresgehalt (€)", "FTE Jahr 1", "Sonstiges (€)"]:
         df_edit[c] = pd.to_numeric(df_edit[c], errors='coerce').fillna(0.0)
         
@@ -302,9 +312,7 @@ for job in jobs_config:
     for k in ["Laptop", "Smartphone", "Auto", "LKW", "Büro"]:
         job[k] = bool(job.get(k))
     
-    # Setup nur Sonstiges, Assets separat
     setup = job["Sonstiges (€)"] 
-    # (Preise für Assets werden im Loop aus State geholt)
     job["_setup_opex"] = setup
     valid_jobs.append(job)
 
@@ -479,7 +487,7 @@ for t in range(1, 11):
     cf_fin = equity_in + borrow - repay
     delta_cash = cf_op + cf_inv + cf_fin
     
-    row["Net Cash Change"] = delta_cash # WICHTIG FÜR PDF
+    row["Net Cash Change"] = delta_cash
     
     cash = cash_start + delta_cash
     debt = debt_prev + borrow - repay
@@ -552,4 +560,19 @@ with tab_cf:
     st.dataframe(df.set_index("Jahr")[cols].T.style.format("€ {:,.0f}"))
 
 with tab_bilanz:
-    st.dataframe(df.set_index("Jahr")[["Anlagevermögen", "Kasse", "Forderungen", "Eigenkapital", "Bankdarlehen", "Verb. LL"]].T.style.format("€ {:,.0f}"))
+    st.subheader("Bilanzstruktur")
+    c1, c2 = st.columns(2)
+    
+    # Trennung Aktiva / Passiva
+    aktiva_cols = ["Anlagevermögen", "Kasse", "Forderungen", "Summe Aktiva"]
+    passiva_cols = ["Eigenkapital", "Bankdarlehen", "Verb. LL", "Summe Passiva"]
+    
+    with c1:
+        st.markdown("**Aktiva**")
+        st.dataframe(df.set_index("Jahr")[aktiva_cols].T.style.format("€ {:,.0f}"))
+    with c2:
+        st.markdown("**Passiva**")
+        st.dataframe(df.set_index("Jahr")[passiva_cols].T.style.format("€ {:,.0f}"))
+    
+    if df["Bilanz Check"].abs().max() > 1: st.error("Bilanzfehler!")
+    else: st.success("Bilanz ist ausgeglichen.")

@@ -52,37 +52,38 @@ with tab_input:
     
     with col_main1:
         st.subheader("1. Markt & Vertrieb")
-        SAM = st.number_input("SAM (Marktgröße)", 39000, 1000)
-        CAP_percent = st.number_input("Marktanteil Ziel (CAP) %", 2.3, 0.1)
+        # KORREKTUR: Explizite Zuweisung von value und step
+        SAM = st.number_input("SAM (Marktgröße)", value=39000, step=1000)
+        CAP_percent = st.number_input("Marktanteil Ziel (CAP) %", value=2.3, step=0.1)
         SOM = SAM * (CAP_percent / 100.0)
         st.caption(f"SOM: {int(SOM)} Kunden")
         
-        p_percent = st.number_input("Innovatoren (p) %", 2.5, 0.1)
-        q_percent = st.number_input("Imitatoren (q) %", 38.0, 1.0)
-        churn_percent = st.number_input("Churn Rate %", 10.0, 1.0)
+        p_percent = st.number_input("Innovatoren (p) %", value=2.5, step=0.1)
+        q_percent = st.number_input("Imitatoren (q) %", value=38.0, step=1.0)
+        churn_percent = st.number_input("Churn Rate %", value=10.0, step=1.0)
         
-        ARPU = st.number_input("ARPU (€)", 3000, 100)
+        ARPU = st.number_input("ARPU (€)", value=3000, step=100)
         discount_total = st.slider("Rabatte %", 0.0, 20.0, 0.0)
 
     with col_main2:
         st.subheader("2. Personal (Start)")
         # Eingabe FTE Jahr 1
         c1, c2, c3 = st.columns(3)
-        with c1: fte_md_y1 = st.number_input("MD (Y1)", 0.0, 0.5)
-        with c2: fte_exec_y1 = st.number_input("Execs (Y1)", 1.0, 0.5)
+        with c1: fte_md_y1 = st.number_input("MD (Y1)", value=0.0, step=0.5)
+        with c2: fte_exec_y1 = st.number_input("Execs (Y1)", value=1.0, step=0.5)
         with c3: 
-            fte_field = st.number_input("Field", 0.25)
-            fte_int = st.number_input("Inside Sales", 0.5)
-            fte_mkt = st.number_input("Mkt", 0.125)
-            fte_acc = st.number_input("Acc", 0.125)
+            fte_field = st.number_input("Field", value=0.25, step=0.125)
+            fte_int = st.number_input("Inside Sales", value=0.5, step=0.125)
+            fte_mkt = st.number_input("Mkt", value=0.125, step=0.125)
+            fte_acc = st.number_input("Acc", value=0.125, step=0.125)
         
         fte_l3_total = fte_field + fte_int + fte_mkt + fte_acc
         
         st.subheader("3. Kosten-Treiber")
-        wage_inc = st.number_input("Lohnsteigerung %", 1.5) / 100
-        inflation = st.number_input("Inflation %", 2.0) / 100
-        lnk_pct = st.number_input("Lohnnebenkosten %", 25.0) / 100
-        marketing_cac = st.number_input("Marketing CAC (€)", 3590)
+        wage_inc = st.number_input("Lohnsteigerung %", value=1.5, step=0.1) / 100
+        inflation = st.number_input("Inflation %", value=2.0, step=0.1) / 100
+        lnk_pct = st.number_input("Lohnnebenkosten %", value=25.0, step=1.0) / 100
+        marketing_cac = st.number_input("Marketing CAC (€)", value=3590, step=100)
 
     st.markdown("---")
     
@@ -90,22 +91,22 @@ with tab_input:
     
     with col_fin1:
         st.subheader("4. Finanzierung (Jahr 1)")
-        equity_initial = st.number_input("Einlage Eigenkapital (€)", 100000)
-        loan_amount = st.number_input("Kreditbetrag (€)", 100000)
-        loan_rate = st.number_input("Zinssatz Kredit (%)", 5.0) / 100.0
-        loan_years = st.number_input("Laufzeit (Jahre)", 10)
+        equity_initial = st.number_input("Einlage Eigenkapital (€)", value=100000, step=1000)
+        loan_amount = st.number_input("Kreditbetrag (€)", value=100000, step=1000)
+        loan_rate = st.number_input("Zinssatz Kredit (%)", value=5.0, step=0.1) / 100.0
+        loan_years = st.number_input("Laufzeit (Jahre)", value=10, step=1)
     
     with col_fin2:
         st.subheader("5. Investments (CAPEX)")
-        capex_initial = st.number_input("Initial Invest (IT/Auto) €", 20000, help="Assets im Jahr 1")
-        capex_annual = st.number_input("Jährl. Ersatzinvest €", 2000)
-        depreciation_period = st.number_input("Abschreibungsdauer Ø (Jahre)", 5)
+        capex_initial = st.number_input("Initial Invest (IT/Auto) €", value=20000, step=1000, help="Assets im Jahr 1")
+        capex_annual = st.number_input("Jährl. Ersatzinvest €", value=2000, step=100)
+        depreciation_period = st.number_input("Abschreibungsdauer Ø (Jahre)", value=5, step=1)
         
     with col_fin3:
         st.subheader("6. Working Capital")
-        dso = st.number_input("DSO (Zahlungsziel Kunden)", 30, help="Days Sales Outstanding")
-        dpo = st.number_input("DPO (Zahlungsziel Lief.)", 30, help="Days Payable Outstanding")
-        tax_rate = st.number_input("Steuersatz (KÖSt+GewSt) %", 30.0) / 100.0
+        dso = st.number_input("DSO (Zahlungsziel Kunden)", value=30, step=1, help="Days Sales Outstanding")
+        dpo = st.number_input("DPO (Zahlungsziel Lief.)", value=30, step=1, help="Days Payable Outstanding")
+        tax_rate = st.number_input("Steuersatz (KÖSt+GewSt) %", value=30.0, step=1.0) / 100.0
 
 # --- BERECHNUNG ---
 

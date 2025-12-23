@@ -1,248 +1,339 @@
 import streamlit as st
 import pandas as pd
 import math
+import numpy as np
 
 # --- Konfiguration ---
-st.set_page_config(page_title="Finanzmodell Pro: GuV & KPIs", layout="wide")
-st.title("Finanzmodell: GuV, Cashflow & Planung")
+st.set_page_config(page_title="Integrated Financial Model", layout="wide")
+st.title("Integriertes Finanzmodell: GuV, Bilanz & Cashflow")
 
-# Tabs definieren
-tab_input, tab_sim, tab_guv, tab_data = st.tabs(["📝 Inputs", "📊 Dashboard", "📑 GuV Rechnung", "📄 Rohdaten"])
+# Hilfsfunktion: Kreditberechnung (Annuität)
+def calculate_loan_schedule(principal, rate, years):
+    if principal <= 0 or years <= 0:
+        return pd.DataFrame()
+    
+    # Jährliche Annuität
+    if rate > 0:
+        annuity = principal * (rate * (1 + rate)**years) / ((1 + rate)**years - 1)
+    else:
+        annuity = principal / years
+        
+    schedule = []
+    remaining_balance = principal
+    
+    for t in range(1, int(years) + 1):
+        interest = remaining_balance * rate
+        repayment = annuity - interest
+        
+        # Am Ende glattstellen
+        if t == years:
+            repayment = remaining_balance
+            annuity = repayment + interest
+            
+        remaining_balance -= repayment
+        
+        schedule.append({
+            "Jahr_Index": t,
+            "Zinsen": interest,
+            "Tilgung": repayment,
+            "Annuität": annuity,
+            "Restschuld": max(0, remaining_balance)
+        })
+    return pd.DataFrame(schedule)
 
+# --- TABS ---
+tab_input, tab_dash, tab_guv, tab_cf, tab_bilanz, tab_loan = st.tabs([
+    "📝 Inputs", "📊 Dashboard", "📑 GuV", "💰 Cashflow", "⚖️ Bilanz", "🏦 Kredit"
+])
+
+# --- 1. INPUTS ---
 with tab_input:
-    st.header("1. Markt & Wachstum (Bass-Modell)")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        SAM = st.number_input("SAM (Gesamtmarkt)", value=39000, step=1000)
-        CAP_percent = st.number_input("Marktanteil (CAP) %", value=2.3, step=0.1)
+    col_main1, col_main2 = st.columns(2)
+    
+    with col_main1:
+        st.subheader("1. Markt & Vertrieb")
+        SAM = st.number_input("SAM (Marktgröße)", 39000, 1000)
+        CAP_percent = st.number_input("Marktanteil Ziel (CAP) %", 2.3, 0.1)
         SOM = SAM * (CAP_percent / 100.0)
-        st.info(f"SOM (Zielkunden): {int(SOM)}")
-    with col2:
-        p_percent = st.number_input("Innovatoren (p) %", value=2.5, step=0.1)
-        q_percent = st.number_input("Imitatoren (q) %", value=38.0, step=1.0)
-    with col3:
-        churn_percent = st.number_input("Churn Rate % (pro Jahr)", value=10.0, step=1.0)
+        st.caption(f"SOM: {int(SOM)} Kunden")
+        
+        p_percent = st.number_input("Innovatoren (p) %", 2.5, 0.1)
+        q_percent = st.number_input("Imitatoren (q) %", 38.0, 1.0)
+        churn_percent = st.number_input("Churn Rate %", 10.0, 1.0)
+        
+        ARPU = st.number_input("ARPU (€)", 3000, 100)
+        discount_total = st.slider("Rabatte %", 0.0, 20.0, 0.0)
+
+    with col_main2:
+        st.subheader("2. Personal (Start)")
+        # Eingabe FTE Jahr 1
+        c1, c2, c3 = st.columns(3)
+        with c1: fte_md_y1 = st.number_input("MD (Y1)", 0.0, 0.5)
+        with c2: fte_exec_y1 = st.number_input("Execs (Y1)", 1.0, 0.5)
+        with c3: 
+            fte_field = st.number_input("Field", 0.25)
+            fte_int = st.number_input("Inside Sales", 0.5)
+            fte_mkt = st.number_input("Mkt", 0.125)
+            fte_acc = st.number_input("Acc", 0.125)
+        
+        fte_l3_total = fte_field + fte_int + fte_mkt + fte_acc
+        
+        st.subheader("3. Kosten-Treiber")
+        wage_inc = st.number_input("Lohnsteigerung %", 1.5) / 100
+        inflation = st.number_input("Inflation %", 2.0) / 100
+        lnk_pct = st.number_input("Lohnnebenkosten %", 25.0) / 100
+        marketing_cac = st.number_input("Marketing CAC (€)", 3590)
 
     st.markdown("---")
-    st.header("2. Finanz-Parameter (Jahr 1)")
-    col_fin1, col_fin2 = st.columns(2)
+    
+    col_fin1, col_fin2, col_fin3 = st.columns(3)
+    
     with col_fin1:
-        ARPU = st.number_input("ARPU (€ Umsatz pro Kunde/Jahr)", value=3000, step=100)
-        discount_total = st.slider("Rabatte & Skonto gesamt (%)", 0.0, 20.0, 0.0, 0.5)
+        st.subheader("4. Finanzierung (Jahr 1)")
+        equity_initial = st.number_input("Einlage Eigenkapital (€)", 100000)
+        loan_amount = st.number_input("Kreditbetrag (€)", 100000)
+        loan_rate = st.number_input("Zinssatz Kredit (%)", 5.0) / 100.0
+        loan_years = st.number_input("Laufzeit (Jahre)", 10)
+    
     with col_fin2:
-        cogs_percent = st.slider("COGS / RHB (% vom Umsatz)", 0.0, 80.0, 10.0, 1.0)
-    
-    st.markdown("---")
-    st.header("3. Personal: Startaufstellung (Jahr 1)")
-    
-    col_p1, col_p2, col_p3 = st.columns(3)
-    
-    with col_p1:
-        st.subheader("Layer 1: Management")
-        fte_md_y1 = st.number_input("Managing Directors (Y1)", value=0.0, step=0.5)
+        st.subheader("5. Investments (CAPEX)")
+        capex_initial = st.number_input("Initial Invest (IT/Auto) €", 20000, help="Assets im Jahr 1")
+        capex_annual = st.number_input("Jährl. Ersatzinvest €", 2000)
+        depreciation_period = st.number_input("Abschreibungsdauer Ø (Jahre)", 5)
         
-    with col_p2:
-        st.subheader("Layer 2: Executives")
-        fte_exec_y1 = st.number_input("Executives (Y1)", value=1.0, step=0.5)
-        
-    with col_p3:
-        st.subheader("Layer 3: Mitarbeiter")
-        fte_field_y1 = st.number_input("Field Service (Y1)", value=0.25, step=0.125)
-        fte_internal_y1 = st.number_input("Internal Sales (Y1)", value=0.5, step=0.125)
-        fte_mark_y1 = st.number_input("Marketing (Y1)", value=0.125, step=0.125)
-        fte_acc_y1 = st.number_input("Accounting (Y1)", value=0.125, step=0.125)
-
-    fte_layer3_y1_total = fte_field_y1 + fte_internal_y1 + fte_mark_y1 + fte_acc_y1
-    
-    # Ratios speichern
-    layer3_ratios = {
-        "Field Service": fte_field_y1 / fte_layer3_y1_total if fte_layer3_y1_total > 0 else 0,
-        "Internal Sales": fte_internal_y1 / fte_layer3_y1_total if fte_layer3_y1_total > 0 else 0,
-        "Marketing": fte_mark_y1 / fte_layer3_y1_total if fte_layer3_y1_total > 0 else 0,
-        "Accounting": fte_acc_y1 / fte_layer3_y1_total if fte_layer3_y1_total > 0 else 0
-    }
-
-    st.markdown("---")
-    st.header("4. Kosten-Variablen")
-    
-    col_c1, col_c2, col_c3 = st.columns(3)
-    with col_c1:
-        st.subheader("Gehälter (Brutto)")
-        h_rate_layer1 = st.number_input("Stundensatz Layer 1 (€)", value=80)
-        h_rate_layer2 = st.number_input("Stundensatz Layer 2 (€)", value=50)
-        h_rate_layer3 = st.number_input("Stundensatz Layer 3 (€)", value=40)
-        lohnnebenkosten = st.number_input("Lohnnebenkosten (%)", value=25.0, step=1.0) / 100.0
-        
-    with col_c2:
-        st.subheader("Steigerungsraten")
-        wage_increase = st.number_input("Lohnsteigerung p.a. (%)", value=1.5, step=0.1) / 100.0
-        inflation = st.number_input("Inflation p.a. (%)", value=2.0, step=0.1) / 100.0
-        
-    with col_c3:
-        st.subheader("OPEX Treiber")
-        marketing_per_cust = st.number_input("Marketing CAC (€)", value=3590)
-        office_per_fte = st.number_input("Büro/Miete pro FTE (€)", value=4044)
-        tech_per_fte = st.number_input("IT/Lizenzen pro FTE (€)", value=1011)
-        consulting_pct = st.number_input("Beratung (% v. Umsatz)", value=5.0, step=0.5) / 100.0
-        car_cost = st.number_input("Kfz p.a. (Exec/Field) €", value=10000)
-
-    st.markdown("---")
-    st.header("5. Steuern & Finanzen (GuV)")
-    col_t1, col_t2 = st.columns(2)
-    with col_t1:
-        tax_trade_pct = st.number_input("Gewerbesteuer (%)", value=15.0, step=0.5) / 100.0
-        tax_corp_pct = st.number_input("Körperschaftssteuer (%)", value=15.0, step=0.5) / 100.0
-    with col_t2:
-        depreciation_pa = st.number_input("Abschreibungen p.a. (Pauschale €)", value=5000, step=1000, help="Wertminderung von Anlagevermögen")
-        interest_pa = st.number_input("Zinsen p.a. (Finanzergebnis €)", value=0, step=500, help="Zinsaufwand für Kredite")
+    with col_fin3:
+        st.subheader("6. Working Capital")
+        dso = st.number_input("DSO (Zahlungsziel Kunden)", 30, help="Days Sales Outstanding")
+        dpo = st.number_input("DPO (Zahlungsziel Lief.)", 30, help="Days Payable Outstanding")
+        tax_rate = st.number_input("Steuersatz (KÖSt+GewSt) %", 30.0) / 100.0
 
 # --- BERECHNUNG ---
 
-P = p_percent / 100.0
-Q = q_percent / 100.0
-CHURN = churn_percent / 100.0
-HOURS_PER_MONTH = 160
-MONTHS = 12
-N_YEAR_1 = 10.0
+# 1. Kreditplan erstellen
+loan_df = calculate_loan_schedule(loan_amount, loan_rate, int(loan_years))
+loan_map = loan_df.set_index("Jahr_Index").to_dict("index") if not loan_df.empty else {}
 
-revenue_y1 = N_YEAR_1 * ARPU * (1 - discount_total/100)
-revenue_per_layer3_fte = revenue_y1 / fte_layer3_y1_total if fte_layer3_y1_total > 0 else 0
+# Konstanten & Init
+P, Q, CHURN = p_percent/100, q_percent/100, churn_percent/100
+revenue_y1 = 10.0 * ARPU * (1 - discount_total/100)
+rev_per_fte = revenue_y1 / fte_l3_total if fte_l3_total > 0 else 0
 
+# Ratios Layer 3
+l3_ratios = {
+    "Field": fte_field/fte_l3_total if fte_l3_total else 0,
+    "Inside": fte_int/fte_l3_total if fte_l3_total else 0,
+    "Mkt": fte_mkt/fte_l3_total if fte_l3_total else 0,
+    "Acc": fte_acc/fte_l3_total if fte_l3_total else 0
+}
+
+# Simulations-Variablen
 results = []
-n_prev = N_YEAR_1
-layer3_prev = fte_layer3_y1_total
-exec_prev = fte_exec_y1
-md_prev = fte_md_y1
+n_prev = 10.0
+l3_prev, exec_prev, md_prev = fte_l3_total, fte_exec_y1, fte_md_y1
 wage_factor = 1.0
-kum_jue = 0.0 # Kumulierter Jahresüberschuss
+
+# Bilanz Startwerte (T=0)
+cash = equity_initial + loan_amount - capex_initial
+fixed_assets = capex_initial
+equity = equity_initial
+debt = loan_amount
+retained_earnings = 0.0
 
 for t in range(1, 11):
     row = {"Jahr": t}
     
-    # 1. Bass Diffusion
-    if t == 1:
-        n_t = N_YEAR_1
+    # --- A. OPERATIV (GuV) ---
+    
+    # 1. Kunden & Umsatz
+    if t == 1: n_t = 10.0
     else:
-        potential = max(0, SOM - n_prev)
-        adoption = (P + Q * (n_prev / SOM))
-        n_t = n_prev * (1 - CHURN) + (adoption * potential)
+        pot = max(0, SOM - n_prev)
+        adopt = (P + Q * (n_prev / SOM))
+        n_t = n_prev * (1 - CHURN) + (adopt * pot)
     row["Kunden"] = n_t
     
-    # 2. Umsatz
-    gross_rev = n_t * ARPU
-    net_rev = gross_rev * (1 - discount_total/100)
+    net_rev = n_t * ARPU * (1 - discount_total/100)
     row["Umsatz"] = net_rev
     
-    # 3. Personal (Hierarchie)
-    if t == 1:
-        curr_layer3 = fte_layer3_y1_total
-        curr_exec = fte_exec_y1
-        curr_md = fte_md_y1
+    # 2. Personal
+    if t > 1:
+        req_l3 = net_rev / rev_per_fte if rev_per_fte > 0 else 0
+        curr_l3 = max(req_l3, l3_prev)
+        curr_exec = max(math.ceil(curr_l3/10), exec_prev)
+        curr_md = max(math.ceil(curr_exec/5), md_prev)
     else:
-        req_layer3 = net_rev / revenue_per_layer3_fte if revenue_per_layer3_fte > 0 else 0
-        curr_layer3 = max(req_layer3, layer3_prev)
+        curr_l3, curr_exec, curr_md = fte_l3_total, fte_exec_y1, fte_md_y1
         
-        req_exec = math.ceil(curr_layer3 / 10.0)
-        curr_exec = max(req_exec, exec_prev)
-        
-        req_md = math.ceil(curr_exec / 5.0)
-        curr_md = max(req_md, md_prev)
-
-    row["FTE Total"] = curr_layer3 + curr_exec + curr_md
+    row["FTE Total"] = curr_l3 + curr_exec + curr_md
     
-    # 4. Kosten
-    if t > 1: wage_factor *= (1 + wage_increase) * (1 + inflation)
+    if t > 1: wage_factor *= (1 + wage_inc) * (1 + inflation)
     
-    # Personal
-    cost_l1 = curr_md * h_rate_layer1 * HOURS_PER_MONTH * MONTHS * wage_factor * (1 + lohnnebenkosten)
-    cost_l2 = curr_exec * h_rate_layer2 * HOURS_PER_MONTH * MONTHS * wage_factor * (1 + lohnnebenkosten)
-    cost_l3 = curr_layer3 * h_rate_layer3 * HOURS_PER_MONTH * MONTHS * wage_factor * (1 + lohnnebenkosten)
-    total_personnel = cost_l1 + cost_l2 + cost_l3
+    # Kosten (Vereinfacht zusammengefasst für Übersicht)
+    cost_pers = (curr_md*80 + curr_exec*50 + curr_l3*40) * 160 * 12 * wage_factor * (1 + lnk_pct)
+    cost_mkt = n_t * marketing_cac
+    cost_opex_other = (row["FTE Total"] * (4044 + 1011)) + (net_rev * 0.05) + (net_rev * 0.10) # Büro/IT + Consulting + COGS
+    if t == 1: cost_opex_other += 13000 # Einmalig Setup
     
-    # OPEX
-    cost_marketing = n_t * marketing_per_cust
-    cost_office = row["FTE Total"] * office_per_fte
-    cost_tech = row["FTE Total"] * tech_per_fte
-    cost_consulting = net_rev * consulting_pct
-    relevant_cars = curr_exec + (curr_layer3 * layer3_ratios["Field Service"])
-    cost_cars = relevant_cars * car_cost
-    cost_misc = 13000 if t == 1 else 3000
+    total_opex = cost_pers + cost_mkt + cost_opex_other
+    ebitda = net_rev - total_opex
     
-    total_opex = cost_marketing + cost_office + cost_tech + cost_consulting + cost_cars + cost_misc
-    cost_cogs = net_rev * (cogs_percent / 100.0)
+    # Abschreibungen (Linear auf Anlagevermögen Start des Jahres + Capex)
+    # Vereinfachung: Capex wird sofort abgeschrieben oder über Dauer. 
+    # Hier: Abschreibung auf Bestand.
+    depreciation = (fixed_assets + (capex_annual if t>1 else 0)) / depreciation_period
     
-    # 5. GuV Stufen
-    total_costs = total_personnel + total_opex + cost_cogs
-    row["Gesamtkosten"] = total_costs
+    ebit = ebitda - depreciation
     
-    ebitda = net_rev - total_costs
+    # Zinsen (aus Tilgungsplan)
+    loan_data = loan_map.get(t, {"Zinsen": 0, "Tilgung": 0, "Restschuld": 0})
+    interest = loan_data["Zinsen"]
+    
+    ebt = ebit - interest
+    tax = max(0, ebt * tax_rate)
+    net_income = ebt - tax
+    
     row["EBITDA"] = ebitda
-    
-    ebit = ebitda - depreciation_pa
     row["EBIT"] = ebit
-    
-    ebt = ebit - interest_pa
     row["EBT"] = ebt
+    row["Steuern"] = tax
+    row["Jahresüberschuss"] = net_income
     
-    # Steuern (nur auf positive Erträge, kein Verlustvortrag in diesem simplen Modell)
-    if ebt > 0:
-        taxes = ebt * (tax_trade_pct + tax_corp_pct)
+    # --- B. WORKING CAPITAL ---
+    # Forderungen (AR) = Umsatz * DSO / 365
+    ar_end = net_rev * (dso / 365)
+    # Verbindlichkeiten (AP) = OPEX * DPO / 365
+    ap_end = total_opex * (dpo / 365)
+    
+    # Delta Berechnung (für Cashflow)
+    # Annahme: Vorjahr AR/AP holen, für t=1 sind AR_prev=0
+    ar_prev = results[-1]["Forderungen"] if t > 1 else 0
+    ap_prev = results[-1]["Verb. LL"] if t > 1 else 0
+    
+    delta_ar = ar_end - ar_prev # Wenn AR steigt -> Cash Out
+    delta_ap = ap_end - ap_prev # Wenn AP steigt -> Cash In
+    
+    row["Forderungen"] = ar_end
+    row["Verb. LL"] = ap_end
+    
+    # --- C. CASHFLOW (Indirekt) ---
+    cf_op = net_income + depreciation - delta_ar + delta_ap
+    
+    # Invest: Capex (Initial im Jahr 1 schon in Startbilanz berücksichtigt? Nein, Cashflow t=1 betrachtet Bewegung)
+    # Wir nehmen an: Initial Capex ist in t=0 passiert (Setup). In t=1 nur laufende.
+    # Oder: Alles passiert in t=1. Wir modellieren: t=1 enthält Start-Invest.
+    capex_now = capex_initial if t == 1 else capex_annual
+    cf_inv = -capex_now
+    
+    # Finanzierung: 
+    # Kreditaufnahme & Eigenkapital in t=1 (oder t=0). 
+    # Wir modellieren Zuflüsse in t=1 CF Statement, um Startsaldo zu erklären.
+    inflow_equity = equity_initial if t == 1 else 0
+    inflow_loan = loan_amount if t == 1 else 0
+    outflow_repay = loan_data["Tilgung"]
+    
+    cf_fin = inflow_equity + inflow_loan - outflow_repay
+    
+    delta_cash = cf_op + cf_inv + cf_fin
+    
+    # --- D. BILANZ UPDATE (End of Year) ---
+    # Assets
+    # Anlagevermögen = Alt + Invest - Abschreibung
+    fixed_assets = fixed_assets + capex_now - depreciation
+    if fixed_assets < 0: fixed_assets = 0
+    
+    # Cash = Alt + Delta
+    if t == 1:
+        # Start Cash war 0 vor Zuflüssen
+        cash = delta_cash 
     else:
-        taxes = 0
-    row["Steuern"] = taxes
+        cash_prev = results[-1]["Kasse"]
+        cash = cash_prev + delta_cash
+        
+    row["Kasse"] = cash
+    row["Anlagevermögen"] = fixed_assets
+    row["Summe Aktiva"] = cash + ar_end + fixed_assets
     
-    jue = ebt - taxes
-    row["Jahresüberschuss (JÜ)"] = jue
+    # Passiva
+    # EK = Alt + JÜ + Einlage
+    # Einlage in t=1 ist in Equity Inflow enthalten
+    if t == 1:
+        retained_earnings = net_income
+        equity_curr = equity_initial + retained_earnings # Equity Initial hier statisch
+    else:
+        retained_earnings += net_income
+        equity_curr = equity_initial + retained_earnings
+        
+    # Fremdkapital
+    debt_curr = loan_data["Restschuld"]
     
-    kum_jue += jue
-    row["Kumulierter JÜ"] = kum_jue
+    row["Eigenkapital"] = equity_curr
+    row["Bankdarlehen"] = debt_curr
+    row["Summe Passiva"] = equity_curr + debt_curr + ap_end
     
-    # State Updates
+    # Check
+    row["Bilanz Check"] = row["Summe Aktiva"] - row["Summe Passiva"]
+    
+    # Speichern
+    row["CF Operativ"] = cf_op
+    row["CF Invest"] = cf_inv
+    row["CF Finanz"] = cf_fin
+    row["Net Cash Change"] = delta_cash
+    row["Zinsaufwand"] = interest
+    row["Tilgung"] = outflow_repay
+    
+    results.append(row)
+    
+    # Update State for Next Loop
     n_prev = n_t
-    layer3_prev = curr_layer3
+    l3_prev = curr_l3
     exec_prev = curr_exec
     md_prev = curr_md
-    results.append(row)
 
 df = pd.DataFrame(results)
 
-# --- OUTPUT ---
+# --- OUTPUTS ---
 
-with tab_sim:
-    st.subheader("Management Summary")
+with tab_dash:
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Umsatz (Jahr 10)", f"€ {df['Umsatz'].iloc[-1]:,.0f}")
-    k2.metric("EBITDA (Jahr 10)", f"€ {df['EBITDA'].iloc[-1]:,.0f}")
-    k3.metric("Jahresüberschuss (Jahr 10)", f"€ {df['Jahresüberschuss (JÜ)'].iloc[-1]:,.0f}")
-    k4.metric("Kumulierter Gewinn (J10)", f"€ {df['Kumulierter JÜ'].iloc[-1]:,.0f}")
+    k1.metric("Umsatz J10", f"€ {df['Umsatz'].iloc[-1]:,.0f}")
+    k2.metric("EBITDA J10", f"€ {df['EBITDA'].iloc[-1]:,.0f}")
+    k3.metric("Kasse J10", f"€ {df['Kasse'].iloc[-1]:,.0f}")
+    check_val = df['Bilanz Check'].iloc[-1]
+    k4.metric("Bilanz Check", f"{check_val:.2f}", delta_color="normal" if abs(check_val)<1 else "inverse")
     
-    st.line_chart(df.set_index("Jahr")[["EBITDA", "EBIT", "Jahresüberschuss (JÜ)"]])
+    st.subheader("Liquiditätsentwicklung (Cash)")
+    st.line_chart(df.set_index("Jahr")["Kasse"])
+    
+    st.subheader("Umsatz vs. Kosten")
+    st.bar_chart(df.set_index("Jahr")[["Umsatz", "EBITDA", "Jahresüberschuss"]])
 
 with tab_guv:
-    st.subheader("Gewinn- und Verlustrechnung (GuV)")
-    
-    # Auswahl der GuV-Spalten für die saubere Darstellung
-    cols_guv = [
-        "Umsatz", "Gesamtkosten", "EBITDA", 
-        "EBIT", "EBT", "Steuern", 
-        "Jahresüberschuss (JÜ)", "Kumulierter JÜ"
-    ]
-    
-    # Transponieren für klassische GuV Ansicht (Jahre als Spalten)
-    df_guv = df.set_index("Jahr")[cols_guv].T
-    
-    st.dataframe(df_guv.style.format("€ {:,.0f}"))
-    
-    st.markdown("### Kennzahlen Übersicht")
-    col_g1, col_g2 = st.columns(2)
-    with col_g1:
-        st.caption("Steuerlast")
-        st.bar_chart(df.set_index("Jahr")["Steuern"])
-    with col_g2:
-        st.caption("Entwicklung Jahresüberschuss")
-        st.bar_chart(df.set_index("Jahr")["Jahresüberschuss (JÜ)"])
+    st.subheader("Gewinn- und Verlustrechnung")
+    cols = ["Umsatz", "EBITDA", "EBIT", "Zinsaufwand", "EBT", "Steuern", "Jahresüberschuss"]
+    st.dataframe(df.set_index("Jahr")[cols].style.format("€ {:,.0f}"))
 
-with tab_data:
-    st.subheader("Vollständiger Datensatz")
-    st.dataframe(df.style.format("{:,.0f}"))
-    st.download_button("Download CSV", df.to_csv(index=False).encode("utf-8"), "business_plan_guv.csv")
+with tab_cf:
+    st.subheader("Kapitalflussrechnung (Cashflow Statement)")
+    cols_cf = ["Jahresüberschuss", "CF Operativ", "CF Invest", "CF Finanz", "Net Cash Change", "Kasse"]
+    st.dataframe(df.set_index("Jahr")[cols_cf].style.format("€ {:,.0f}"))
+    
+    st.bar_chart(df.set_index("Jahr")[["CF Operativ", "CF Invest", "CF Finanz"]])
+
+with tab_bilanz:
+    st.subheader("Bilanz (Aktiva & Passiva)")
+    
+    c_bil1, c_bil2 = st.columns(2)
+    with c_bil1:
+        st.markdown("**Aktiva**")
+        st.dataframe(df.set_index("Jahr")[["Kasse", "Forderungen", "Anlagevermögen", "Summe Aktiva"]].style.format("€ {:,.0f}"))
+    with c_bil2:
+        st.markdown("**Passiva**")
+        st.dataframe(df.set_index("Jahr")[["Verb. LL", "Bankdarlehen", "Eigenkapital", "Summe Passiva"]].style.format("€ {:,.0f}"))
+        
+    st.error(f"Maximale Abweichung Bilanz: {df['Bilanz Check'].abs().max():.2f} €")
+
+with tab_loan:
+    st.subheader("Kredit Tilgungsplan")
+    st.dataframe(loan_df.set_index("Jahr_Index").style.format("€ {:,.2f}"))
+    
+    st.line_chart(loan_df.set_index("Jahr_Index")[["Zinsen", "Tilgung", "Restschuld"]])

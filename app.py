@@ -8,6 +8,21 @@ import numpy as np
 st.set_page_config(page_title="Finanzmodell Pro: Custom Jobs", layout="wide")
 st.title("Integriertes Finanzmodell: Custom Jobs & Ressourcen")
 
+# --- INITIALISIERUNG (STATE) ---
+# Wir definieren die Jobs hier oben, damit der Export-Button (der weiter unten kommt) darauf zugreifen kann.
+
+if "current_jobs_df" not in st.session_state:
+    # Standard-Datenstruktur
+    default_data = [
+        {"Job Titel": "Geschäftsführer", "Jahresgehalt (€)": 120000, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 0},
+        {"Job Titel": "Vertriebsleiter", "Jahresgehalt (€)": 80000, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 0},
+        {"Job Titel": "Sales Manager", "Jahresgehalt (€)": 50000, "FTE Jahr 1": 3.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 500},
+        {"Job Titel": "Marketing", "Jahresgehalt (€)": 45000, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": False, "Auto": False, "LKW": False, "Büro": True, "Sonstiges (€)": 2000},
+        {"Job Titel": "Techniker", "Jahresgehalt (€)": 40000, "FTE Jahr 1": 2.0, "Laptop": False, "Smartphone": True, "Auto": False, "LKW": True, "Büro": False, "Sonstiges (€)": 1000},
+        {"Job Titel": "Buchhaltung", "Jahresgehalt (€)": 42000, "FTE Jahr 1": 0.5, "Laptop": True, "Smartphone": False, "Auto": False, "LKW": False, "Büro": True, "Sonstiges (€)": 0},
+    ]
+    st.session_state["current_jobs_df"] = pd.DataFrame(default_data)
+
 # --- HILFSFUNKTIONEN ---
 
 def calculate_loan_schedule(principal, rate, years):
@@ -40,8 +55,6 @@ def calculate_loan_schedule(principal, rate, years):
     return pd.DataFrame(schedule)
 
 # --- SZENARIO MANAGER ---
-# Wir definieren hier nur die Keys für einfache Inputs. 
-# Die komplexe Job-Tabelle behandeln wir separat beim Speichern.
 simple_input_keys = [
     "sam", "cap_pct", "p_pct", "q_pct", "churn",
     "arpu", "discount",
@@ -60,11 +73,9 @@ with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=False):
         # 1. Einfache Werte
         config_data = {key: st.session_state.get(key) for key in simple_input_keys if key in st.session_state}
         
-        # 2. Job Daten (falls vorhanden) aus dem Data Editor State
-        # Streamlit Data Editor speichert Änderungen, aber wir müssen die Basisdaten sichern
-        # Wir greifen hier auf den angezeigten DataFrame zu, falls möglich, sonst leer
-        if "job_editor_data" in st.session_state:
-             config_data["jobs_data"] = st.session_state["job_editor_data"].to_dict(orient="records")
+        # 2. Job Daten (KORRIGIERT: Zugriff auf das DataFrame im State, nicht den Editor-Key)
+        if "current_jobs_df" in st.session_state:
+             config_data["jobs_data"] = st.session_state["current_jobs_df"].to_dict(orient="records")
 
         json_string = json.dumps(config_data, indent=2)
         
@@ -86,9 +97,9 @@ with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=False):
                     if key in simple_input_keys:
                         st.session_state[key] = value
                 
-                # Job Daten laden (in Session State für Initialisierung)
+                # Job Daten laden
                 if "jobs_data" in data:
-                    st.session_state["loaded_jobs"] = pd.DataFrame(data["jobs_data"])
+                    st.session_state["current_jobs_df"] = pd.DataFrame(data["jobs_data"])
                 
                 st.success("Erfolgreich geladen! Bitte warten...")
                 st.rerun()
@@ -157,27 +168,16 @@ with tab_res:
         
     with col_r2:
         st.subheader("Definition der Jobs (Jahr 1)")
-        st.markdown("Definieren Sie hier Ihre Rollen. Das Modell skaliert die Anzahl in Zukunft basierend auf dem Umsatzwachstum, behält aber den **Mix** (Verhältnis der Rollen zueinander) bei.")
+        st.markdown("Definieren Sie hier Ihre Rollen. Das Modell skaliert die Anzahl in Zukunft basierend auf dem Umsatzwachstum.")
         
-        # Standard-Datenstruktur für die Tabelle
-        default_jobs = pd.DataFrame([
-            {"Job Titel": "Geschäftsführer", "Jahresgehalt (€)": 120000, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 0},
-            {"Job Titel": "Vertriebsleiter", "Jahresgehalt (€)": 80000, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 0},
-            {"Job Titel": "Sales Manager", "Jahresgehalt (€)": 50000, "FTE Jahr 1": 3.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 500},
-            {"Job Titel": "Marketing", "Jahresgehalt (€)": 45000, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": False, "Auto": False, "LKW": False, "Büro": True, "Sonstiges (€)": 2000},
-            {"Job Titel": "Techniker", "Jahresgehalt (€)": 40000, "FTE Jahr 1": 2.0, "Laptop": False, "Smartphone": True, "Auto": False, "LKW": True, "Büro": False, "Sonstiges (€)": 1000},
-            {"Job Titel": "Buchhaltung", "Jahresgehalt (€)": 42000, "FTE Jahr 1": 0.5, "Laptop": True, "Smartphone": False, "Auto": False, "LKW": False, "Büro": True, "Sonstiges (€)": 0},
-        ])
+        # Daten aus State laden (wurde oben initialisiert)
+        df_for_editor = st.session_state["current_jobs_df"]
         
-        # Falls importierte Daten existieren, diese nutzen
-        if "loaded_jobs" in st.session_state:
-            default_jobs = st.session_state["loaded_jobs"]
-            
         # Editable Dataframe
         edited_jobs = st.data_editor(
-            default_jobs,
+            df_for_editor,
             num_rows="dynamic",
-            key="job_editor_data",
+            key="job_editor_widget", # Eigener Key für das Widget
             column_config={
                 "Job Titel": st.column_config.TextColumn("Rolle / Titel", required=True),
                 "Jahresgehalt (€)": st.column_config.NumberColumn("Jahresgehalt (Brutto)", min_value=0, format="%d €"),
@@ -186,21 +186,22 @@ with tab_res:
             },
             hide_index=True
         )
+        # KORREKTUR: Das Ergebnis des Editors zurück in den State speichern für den nächsten Run/Export
+        st.session_state["current_jobs_df"] = edited_jobs
 
 # --- BERECHNUNGS-LOGIK ---
 
 # 1. Parsing der Job-Daten
-# Wir wandeln den Editor-Output in eine Liste von Dictionaries um und berechnen die Setup-Kosten pro Job
 jobs_config = edited_jobs.to_dict(orient="records")
 
-# Initialkosten pro Rolle berechnen (Laptop + Auto + ... + Sonstiges)
+# Initialkosten pro Rolle berechnen
 for job in jobs_config:
-    setup_cost = job["Sonstiges (€)"]
-    if job["Laptop"]: setup_cost += p_laptop
-    if job["Smartphone"]: setup_cost += p_phone
-    if job["Auto"]: setup_cost += p_car
-    if job["LKW"]: setup_cost += p_truck
-    if job["Büro"]: setup_cost += p_desk
+    setup_cost = job.get("Sonstiges (€)", 0)
+    if job.get("Laptop", False): setup_cost += p_laptop
+    if job.get("Smartphone", False): setup_cost += p_phone
+    if job.get("Auto", False): setup_cost += p_car
+    if job.get("LKW", False): setup_cost += p_truck
+    if job.get("Büro", False): setup_cost += p_desk
     job["_setup_cost_per_head"] = setup_cost
 
 # 2. Basis-Metriken Jahr 1
@@ -209,16 +210,14 @@ total_fte_y1 = sum(j["FTE Jahr 1"] for j in jobs_config)
 P_bass = st.session_state.get("p_pct", 2.5) / 100.0
 Q_bass = st.session_state.get("q_pct", 38.0) / 100.0
 CHURN = st.session_state.get("churn", 10.0) / 100.0
-# Wir nehmen an, Jahr 1 startet mit 10 Kunden (Startwert für Bass)
 N_start = 10.0 
 revenue_y1 = N_start * ARPU * (1 - discount_total/100)
 
-# SKALIERUNGS-FAKTOR: Wie viel Umsatz schafft 1 FTE (im Durchschnitt)?
-# Das definiert das "Upscaling" für die Zukunft.
+# SKALIERUNGS-FAKTOR
 if total_fte_y1 > 0:
     revenue_per_fte_benchmark = revenue_y1 / total_fte_y1
 else:
-    revenue_per_fte_benchmark = 0 # Fallback
+    revenue_per_fte_benchmark = 0
 
 # Kredit
 loan_df = calculate_loan_schedule(loan_amount, loan_rate, int(loan_years))
@@ -227,10 +226,8 @@ loan_map = loan_df.set_index("Jahr_Index").to_dict("index") if not loan_df.empty
 # --- SIMULATION ---
 results = []
 n_prev = N_start
-# Wir speichern die Anzahl der FTEs pro Rolle vom Vorjahr, um "Ratchet" (keine Entlassungen) zu prüfen
 prev_ftes_by_role = {j["Job Titel"]: j["FTE Jahr 1"] for j in jobs_config}
 
-# Bilanz Startwerte
 cash = 0.0
 fixed_assets = 0.0
 equity = 0.0
@@ -253,27 +250,17 @@ for t in range(1, 11):
     net_rev = n_t * ARPU * (1 - discount_total/100)
     row["Umsatz"] = net_rev
     
-    # 2. Personalbedarf (Upscaling)
-    # Ziel-FTEs gesamt basierend auf Umsatzwachstum
+    # 2. Personalbedarf
     if revenue_per_fte_benchmark > 0:
         target_total_fte = net_rev / revenue_per_fte_benchmark
     else:
         target_total_fte = 0
     
-    # Wenn Jahr 1, nehmen wir exakt die Eingabe. Sonst Skalierung.
-    if t == 1:
-        current_total_fte = total_fte_y1
-    else:
-        # Wir wollen nicht unter den Vorjahreswert fallen (Ratchet auf Gesamt-Level oder pro Rolle?)
-        # Wir machen es pro Rolle für maximale Stabilität.
-        pass # Berechnung folgt unten in der Schleife über Jobs
-
-    # 3. Iteration über alle Jobs (Kosten & FTEs berechnen)
+    # 3. Iteration über Jobs
     daily_personnel_cost = 0
-    daily_capex_assets = 0 # Neue Anschaffungen
+    daily_capex_assets = 0
     total_fte_this_year = 0
     
-    # Lohnsteigerung
     if t > 1: wage_factor *= (1 + wage_inc) * (1 + inflation)
     
     current_ftes_by_role = {}
@@ -283,44 +270,33 @@ for t in range(1, 11):
         base_fte = job["FTE Jahr 1"]
         base_salary = job["Jahresgehalt (€)"]
         
-        # Berechnung FTE für dieses Jahr
         if t == 1:
             curr_fte = base_fte
         else:
-            # Anteilige Skalierung: Wenn wir insgesamt +50% brauchen, wächst jede Rolle um +50%
-            # Anteil der Rolle am Gesamt-FTE in Jahr 1
             share = base_fte / total_fte_y1 if total_fte_y1 > 0 else 0
             req_fte = target_total_fte * share
-            # Keine Entlassungen: Mindestens so viele wie Vorjahr
             curr_fte = max(req_fte, prev_ftes_by_role.get(role_name, 0))
         
         current_ftes_by_role[role_name] = curr_fte
         total_fte_this_year += curr_fte
         row[f"FTE {role_name}"] = curr_fte
         
-        # Personalkosten (OPEX)
-        # Gehalt * FTE * Faktor * Nebenkosten
         salaries = base_salary * curr_fte * wage_factor * (1 + lnk_pct)
         daily_personnel_cost += salaries
         
-        # Neue Assets (CAPEX)
-        # Nur für ZUSÄTZLICHE Mitarbeiter müssen wir Laptops/Autos kaufen
         prev_fte = prev_ftes_by_role.get(role_name, 0) if t > 1 else 0
-        # Im Jahr 1 kaufen wir für ALLE (da Start bei 0), sonst Delta
-        # ABER: Die Bilanzlogik unten setzt Assets t=0 auf 0. Also ist Jahr 1 Delta = FTE Jahr 1.
         delta_fte = max(0, curr_fte - prev_fte)
         
-        # Anschaffungskosten für die neuen FTEs
         new_assets_cost = delta_fte * job["_setup_cost_per_head"]
         daily_capex_assets += new_assets_cost
 
     row["FTE Total"] = total_fte_this_year
     row["Personalkosten"] = daily_personnel_cost
-    row["Investitionen (Assets)"] = daily_capex_assets # Das sind die Job-Assets
+    row["Investitionen (Assets)"] = daily_capex_assets
     
     # 4. Andere Kosten
     cost_mkt = n_t * marketing_cac
-    cost_cogs = net_rev * 0.10 # Pauschal 10%
+    cost_cogs = net_rev * 0.10
     cost_consulting = net_rev * 0.02
     
     total_opex = daily_personnel_cost + cost_mkt + cost_cogs + cost_consulting + capex_annual
@@ -329,10 +305,6 @@ for t in range(1, 11):
     ebitda = net_rev - total_opex
     
     # 5. Abschreibungen & Finanzen
-    # Investitionen gesamt = Job-Assets + Sonstiges jährliches Capex (Ersatz)
-    # (capex_annual ist oben in OPEX als Instandhaltung, hier nehmen wir Asset-Kauf)
-    
-    # Abschreibung
     capex_now = daily_capex_assets
     depreciation = (fixed_assets + capex_now) / depreciation_period
     
@@ -351,7 +323,6 @@ for t in range(1, 11):
     row["Abschreibungen"] = depreciation
     
     # 6. Cashflow
-    # Working Capital Delta
     ar_end = net_rev * (dso/365.0)
     ap_end = total_opex * (dpo/365.0)
     ar_prev = results[-1]["Forderungen"] if t > 1 else 0
@@ -397,7 +368,6 @@ for t in range(1, 11):
     
     results.append(row)
     
-    # State update
     n_prev = n_t
     prev_ftes_by_role = current_ftes_by_role
 
@@ -419,7 +389,6 @@ with tab_dash:
         st.line_chart(df.set_index("Jahr")[["Umsatz", "Personalkosten", "EBITDA"]])
     with c2:
         st.subheader("Entwicklung der Job-Rollen")
-        # Wir filtern die Spalten, die mit "FTE " beginnen (aber nicht Total)
         job_cols = [c for c in df.columns if c.startswith("FTE ") and c != "FTE Total"]
         st.bar_chart(df.set_index("Jahr")[job_cols], stack=True)
         

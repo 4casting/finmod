@@ -215,6 +215,9 @@ for t in range(1, 11):
     
     total_opex = cost_pers + cost_mkt + cost_opex_fix + cost_consulting + cost_cogs + cost_setup
     
+    # WICHTIG: Gesamtkosten speichern für Charts!
+    row["Gesamtkosten"] = total_opex
+    
     # EBITDA
     ebitda = net_rev - total_opex
     
@@ -358,6 +361,7 @@ with tab_dash:
     c_chart1, c_chart2 = st.columns(2)
     with c_chart1:
         st.subheader("Umsatz- & Gewinnentwicklung")
+        # Hier gab es den Fehler: "Gesamtkosten" ist jetzt definiert.
         st.line_chart(df.set_index("Jahr")[["Umsatz", "Gesamtkosten", "EBITDA"]])
         
     with c_chart2:

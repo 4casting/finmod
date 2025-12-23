@@ -8,6 +8,46 @@ import matplotlib.pyplot as plt
 import tempfile
 from datetime import datetime
 
+# --- LOGIN FUNKTION ---
+def check_password():
+    """Gibt True zurück, wenn das Passwort korrekt ist."""
+
+    # Prüfen, ob das Passwort schon in der Session ist
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    if st.session_state["password_correct"]:
+        return True
+
+    # Eingabefelder für Login
+    st.markdown("## 🔒 Bitte einloggen")
+    
+    # Hier können Sie Benutzername/Passwort festlegen
+    # In einer echten App sollten diese idealerweise in st.secrets stehen
+    user = st.text_input("Benutzername")
+    pwd = st.text_input("Passwort", type="password")
+    
+    if st.button("Anmelden"):
+        # BEISPIEL: User="admin", Passwort="123"
+        if user == "admin" and pwd == "123":
+            st.session_state["password_correct"] = True
+            st.rerun()  # App neu laden, um Inhalt anzuzeigen
+        else:
+            st.error("Falscher Benutzername oder Passwort")
+            
+    return False
+
+# --- HAUPTPROGRAMM ---
+# Nur wenn Login erfolgreich, läuft der Rest des Codes weiter
+if not check_password():
+    st.stop()  # Stoppt die Ausführung hier, wenn nicht eingeloggt
+
+# ... HIER BEGINNT IHR NORMALER CODE (Inputs, Tabs etc.) ...
+st.sidebar.success("Eingeloggt als Admin")
+if st.sidebar.button("Abmelden"):
+    st.session_state["password_correct"] = False
+    st.rerun()
+
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Finanzmodell Pro", layout="wide")
 
@@ -576,3 +616,4 @@ with tab_bilanz:
     
     if df["Bilanz Check"].abs().max() > 1: st.error("Bilanzfehler!")
     else: st.success("Bilanz ist ausgeglichen.")
+

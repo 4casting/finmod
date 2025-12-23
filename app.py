@@ -6,51 +6,28 @@ import numpy as np
 
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Finanzmodell Pro", layout="wide")
-st.title("Integriertes Finanzmodell: Import/Export Fix")
 
 # --- 1. DEFINITION DER STANDARDS (ZENTRAL) ---
-# Das ist die "Wahrheit". Alle Keys, die hier stehen, werden gespeichert und geladen.
 DEFAULTS = {
     # Markt & Wachstum
-    "sam": 39000.0,
-    "cap_pct": 2.3,
-    "p_pct": 2.5,
-    "q_pct": 38.0,
-    "churn": 10.0,
-    "arpu": 3000.0,
-    "discount": 0.0,
+    "sam": 39000.0, "cap_pct": 2.3, "p_pct": 2.5, "q_pct": 38.0, "churn": 10.0, "arpu": 3000.0, "discount": 0.0,
     # Finanzierung
-    "equity": 100000.0,
-    "loan_initial": 0.0,
-    "min_cash": 100000.0,
-    "loan_rate": 5.0,
+    "equity": 100000.0, "loan_initial": 0.0, "min_cash": 100000.0, "loan_rate": 5.0,
     # Personal Global
-    "wage_inc": 1.5,
-    "inflation": 2.0,
-    "lnk_pct": 25.0,
-    "target_rev_per_fte": 150000.0,
+    "wage_inc": 1.5, "inflation": 2.0, "lnk_pct": 25.0, "target_rev_per_fte": 150000.0,
     # Working Capital & Tax
-    "dso": 30,
-    "dpo": 30,
-    "tax_rate": 30.0,
-    "cac": 3590.0,
+    "dso": 30, "dpo": 30, "tax_rate": 30.0, "cac": 3590.0,
     # Assets
-    "price_desk": 2500,
-    "price_laptop": 2000,
-    "price_phone": 800,
-    "price_car": 40000,
-    "price_truck": 60000,
-    "capex_annual": 5000,
-    "depreciation": 5
+    "price_desk": 2500, "price_laptop": 2000, "price_phone": 800, "price_car": 40000, "price_truck": 60000,
+    "capex_annual": 5000, "depreciation": 5
 }
 
 # --- 2. INITIALISIERUNG STATE ---
-# Sicherstellen, dass alle Keys existieren
 for key, default_val in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = default_val
 
-# Jobs Tabelle Initialisieren (nur wenn noch nicht da)
+# Jobs Tabelle Initialisieren
 if "current_jobs_df" not in st.session_state:
     defined_roles = [
         {"Job Titel": "Geschäftsführer", "Jahresgehalt (€)": 120000.0, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 0.0},
@@ -75,59 +52,75 @@ def safe_float(value, default=0.0):
         return float(value)
     except: return default
 
-# --- SZENARIO MANAGER ---
-with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=True):
+# --- HEADER & GLOBAL BUTTONS ---
+st.title("Integriertes Finanzmodell: Cash Sweep")
+
+# GROSSER BERECHNEN BUTTON GANZ OBEN
+col_main_act1, col_main_act2 = st.columns([1, 3])
+with col_main_act1:
+    if st.button("🔄 MODELL JETZT NEU BERECHNEN", type="primary", use_container_width=True):
+        st.rerun()
+with col_main_act2:
+    st.info("💡 Ändern Sie Werte in den Tabs oder laden Sie eine Konfiguration. Klicken Sie links, um alles zu aktualisieren.")
+
+# --- SZENARIO MANAGER (IMPORT / EXPORT) ---
+with st.expander("📂 Datei Speichern & Laden (Import/Export)", expanded=True):
     col_io1, col_io2 = st.columns(2)
+    
+    # --- EXPORT ---
     with col_io1:
-        st.markdown("### Export")
-        # 1. Wir sammeln alle einfachen Werte aus DEFAULTS
+        st.markdown("##### 1. Aktuellen Stand sichern")
+        # Daten sammeln
         config_data = {key: st.session_state[key] for key in DEFAULTS.keys()}
         
-        # 2. Job Tabelle hinzufügen (Wichtig: NaN zu 0/False/None wandeln für JSON)
         if "current_jobs_df" in st.session_state:
-             df_export = st.session_state["current_jobs_df"].copy()
-             df_export = df_export.fillna(0)
-             # Boolesche Spalten sicherstellen
-             bool_cols = ["Laptop", "Smartphone", "Auto", "LKW", "Büro"]
-             for c in bool_cols:
-                 if c in df_export.columns:
-                     df_export[c] = df_export[c].apply(lambda x: bool(x))
-             
+             df_export = st.session_state["current_jobs_df"].fillna(0).copy()
+             # Boolesche Werte sicherstellen
+             for c in ["Laptop", "Smartphone", "Auto", "LKW", "Büro"]:
+                 if c in df_export.columns: df_export[c] = df_export[c].apply(bool)
              config_data["jobs_data"] = df_export.to_dict(orient="records")
              
         st.download_button(
-            label="💾 Konfiguration speichern (JSON)", 
+            label="💾 Als JSON herunterladen", 
             data=json.dumps(config_data, indent=2), 
             file_name="finanzmodell_config.json", 
-            mime="application/json"
+            mime="application/json",
+            help="Speichert alle aktuellen Eingaben in einer Datei."
         )
 
+    # --- IMPORT ---
     with col_io2:
-        st.markdown("### Import")
-        uploaded_file = st.file_uploader("Konfigurationsdatei laden", type=["json"])
+        st.markdown("##### 2. Stand wiederherstellen")
+        uploaded_file = st.file_uploader("JSON-Datei hier hereinziehen:", type=["json"])
+        
+        # Der Button erscheint nur, wenn eine Datei da ist
         if uploaded_file is not None:
-            try:
-                data = json.load(uploaded_file)
-                
-                # 1. Einfache Werte wiederherstellen
-                for key, val in data.items():
-                    if key in DEFAULTS: 
-                        st.session_state[key] = val
-                
-                # 2. Job Tabelle wiederherstellen
-                if "jobs_data" in data:
-                    new_df = pd.DataFrame(data["jobs_data"])
-                    st.session_state["current_jobs_df"] = new_df
+            # Container für den Button, damit er gut sichtbar ist
+            c_imp = st.container()
+            c_imp.success("Datei erkannt! Klicken Sie unten auf 'Importieren'.")
+            
+            if c_imp.button("📥 Importieren & Anwenden", type="secondary"):
+                try:
+                    data = json.load(uploaded_file)
                     
-                    # WICHTIG: Cache des Editors löschen, damit er die neuen Daten anzeigt!
-                    # Wenn wir das nicht tun, zeigt der Editor weiter die alten Daten an.
-                    if "job_editor_widget" in st.session_state:
-                        del st.session_state["job_editor_widget"]
-                
-                st.success("Daten erfolgreich geladen! Die App wird aktualisiert...")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Fehler beim Import: {e}")
+                    # 1. Einfache Werte übernehmen
+                    for key, val in data.items():
+                        if key in DEFAULTS: 
+                            st.session_state[key] = val
+                    
+                    # 2. Job Tabelle übernehmen
+                    if "jobs_data" in data:
+                        new_df = pd.DataFrame(data["jobs_data"])
+                        st.session_state["current_jobs_df"] = new_df
+                        
+                        # WICHTIG: Cache des Editors löschen!
+                        if "job_editor_widget" in st.session_state:
+                            del st.session_state["job_editor_widget"]
+                    
+                    st.toast("Import erfolgreich! Daten wurden aktualisiert.", icon="✅")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Fehler beim Lesen der Datei: {e}")
 
 # --- TABS ---
 tab_input, tab_res, tab_dash, tab_guv, tab_cf, tab_bilanz = st.tabs([
@@ -139,7 +132,6 @@ with tab_input:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("1. Markt & Wachstum")
-        # Wir nutzen 'key', Streamlit bindet das automatisch an st.session_state[key]
         st.number_input("SAM (Marktpotenzial)", step=1000.0, key="sam")
         st.number_input("Marktanteil Ziel %", step=0.1, key="cap_pct")
         SOM = st.session_state["sam"] * (st.session_state["cap_pct"] / 100.0)
@@ -195,8 +187,10 @@ with tab_res:
     with col_r2:
         st.subheader("Job Definitionen (15 Slots)")
         
-        # Daten vorbereiten
+        # DataFrame laden (Kopie)
         df_edit = st.session_state["current_jobs_df"].copy()
+        
+        # Typ-Konvertierung
         for col in ["Jahresgehalt (€)", "FTE Jahr 1", "Sonstiges (€)"]:
             df_edit[col] = pd.to_numeric(df_edit[col], errors='coerce').fillna(0.0)
         
@@ -218,7 +212,7 @@ with tab_res:
             },
             hide_index=True
         )
-        # WICHTIG: Speichern in State, damit beim nächsten Rerun (oder Export) die aktuellen Daten da sind
+        # Direktes Update des States, damit Berechnungen die neuen Werte nutzen
         st.session_state["current_jobs_df"] = edited_jobs
 
 # --- BERECHNUNG ---
@@ -241,7 +235,7 @@ for job in jobs_config:
     job["Jahresgehalt (€)"] = safe_float(job.get("Jahresgehalt (€)"))
     valid_jobs.append(job)
 
-# 2. Konstanten aus State
+# 2. Konstanten
 total_fte_y1 = sum(j["FTE Jahr 1"] for j in valid_jobs)
 P = st.session_state["p_pct"] / 100.0
 Q = st.session_state["q_pct"] / 100.0
@@ -256,7 +250,6 @@ results = []
 n_prev = N_start
 prev_ftes_by_role = {j["Job Titel"]: j["FTE Jahr 1"] for j in valid_jobs}
 
-# Startwerte vor T1
 cash = 0.0
 fixed_assets = 0.0
 equity = 0.0
@@ -268,7 +261,7 @@ debt_prev = st.session_state["loan_initial"]
 for t in range(1, 11):
     row = {"Jahr": t}
     
-    # --- A. Markt ---
+    # --- Markt ---
     if t == 1: n_t = N_start
     else:
         pot = max(0, SOM - n_prev)
@@ -278,7 +271,7 @@ for t in range(1, 11):
     net_rev = n_t * st.session_state["arpu"] * (1 - st.session_state["discount"]/100)
     row["Umsatz"] = net_rev
     
-    # --- B. Personal ---
+    # --- Personal ---
     target_total_fte = 0
     if st.session_state["target_rev_per_fte"] > 0:
         target_total_fte = net_rev / st.session_state["target_rev_per_fte"]
@@ -321,7 +314,7 @@ for t in range(1, 11):
     row["Personalkosten"] = daily_personnel_cost
     row["Investitionen (Assets)"] = daily_capex_assets
     
-    # --- C. GuV ---
+    # --- GuV ---
     cost_mkt = n_t * st.session_state["cac"]
     cost_cogs = net_rev * 0.10
     cost_cons = net_rev * 0.02
@@ -343,7 +336,7 @@ for t in range(1, 11):
     row["EBIT"] = ebit
     row["Jahresüberschuss"] = net_income
     
-    # --- D. Cashflow & Finanzierung ---
+    # --- Cashflow & Finanzierung ---
     ar_end = net_rev * (st.session_state["dso"]/365.0)
     ap_end = total_opex * (st.session_state["dpo"]/365.0)
     ar_prev = results[-1]["Forderungen"] if t > 1 else 0
@@ -376,7 +369,7 @@ for t in range(1, 11):
     cash = cash_start + delta_cash
     debt = debt_prev + borrow_amount - repay_amount
     
-    # --- E. Bilanz ---
+    # --- Bilanz ---
     fixed_assets = max(0, fixed_assets + capex_now - deprec)
     if t==1:
         retained_earnings = net_income

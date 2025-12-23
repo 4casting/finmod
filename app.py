@@ -8,6 +8,7 @@ import numpy as np
 st.set_page_config(page_title="Finanzmodell Pro", layout="wide")
 
 # --- 1. DEFINITION DER STANDARDS (ZENTRAL) ---
+# WICHTIG: Alle Variablen hier werden gespeichert/geladen!
 DEFAULTS = {
     # Markt & Wachstum
     "sam": 39000.0, "cap_pct": 2.3, "p_pct": 2.5, "q_pct": 38.0, "churn": 10.0, "arpu": 3000.0, "discount": 0.0,
@@ -19,10 +20,10 @@ DEFAULTS = {
     "dso": 30, "dpo": 30, "tax_rate": 30.0, "cac": 3590.0,
     # Assets PREISE
     "price_desk": 2500, "price_laptop": 2000, "price_phone": 800, "price_car": 40000, "price_truck": 60000,
-    # Assets NUTZUNGSDAUER (Jahre) - NEU
+    # Assets NUTZUNGSDAUER (Jahre) - NEU HINZUGEFÜGT
     "ul_desk": 13, "ul_laptop": 3, "ul_phone": 2, "ul_car": 6, "ul_truck": 8,
-    # Sonstiges
-    "capex_annual": 5000, "depreciation_misc": 5 # Für sonstiges Capex
+    # Sonstiges Capex
+    "capex_annual": 5000, "depreciation_misc": 5
 }
 
 # --- 2. INITIALISIERUNG STATE ---
@@ -70,6 +71,7 @@ with st.expander("📂 Datei Speichern & Laden (Import/Export)", expanded=False)
     col_io1, col_io2 = st.columns(2)
     with col_io1:
         st.markdown("##### 1. Aktuellen Stand sichern")
+        # Hier werden jetzt ALLE Werte aus DEFAULTS gezogen, inkl. Nutzungsdauern
         config_data = {key: st.session_state[key] for key in DEFAULTS.keys()}
         if "current_jobs_df" in st.session_state:
              df_export = st.session_state["current_jobs_df"].fillna(0).copy()
@@ -98,7 +100,6 @@ with st.expander("📂 Datei Speichern & Laden (Import/Export)", expanded=False)
                 except Exception as e: st.error(f"Fehler: {e}")
 
 # --- TABS ---
-# NEUER TAB: Abschreibungen an Stelle 2
 tab_input, tab_assets, tab_jobs, tab_dash, tab_guv, tab_cf, tab_bilanz = st.tabs([
     "📝 Markt & Finanzen", "📉 Abschreibungen & Assets", "👥 Jobs & Personal", "📊 Dashboard", "📑 GuV", "💰 Cashflow", "⚖️ Bilanz"
 ])
@@ -138,10 +139,7 @@ with tab_input:
 # --- TAB 2: ABSCHREIBUNGEN & ASSETS ---
 with tab_assets:
     st.header("Asset Management & AfA")
-    st.markdown("""
-    Hier definieren Sie die Kosten und die **Nutzungsdauer** für die Ausstattung der Mitarbeiter.
-    **Logik:** Wenn die Nutzungsdauer abgelaufen ist, kauft das Modell im Folgejahr automatisch Ersatz (Re-Invest).
-    """)
+    st.markdown("Hier definieren Sie Preise und **Nutzungsdauer (Jahre)**. Abgelaufene Assets werden automatisch ersetzt.")
     
     col_a1, col_a2, col_a3 = st.columns(3)
     
@@ -166,7 +164,7 @@ with tab_assets:
         st.number_input("Büroplatz Preis (€)", key="price_desk")
         st.number_input("Büro Dauer (Jahre)", key="ul_desk", min_value=1)
         st.markdown("---")
-        st.number_input("Sonstiges Capex p.a. (Pauschale €)", key="capex_annual", help="Laufende Ersatzinvestitionen ohne Mitarbeiterbezug")
+        st.number_input("Sonstiges Capex p.a. (Pauschale €)", key="capex_annual")
         st.number_input("AfA Dauer Sonstiges (Jahre)", key="depreciation_misc")
 
 # --- TAB 3: JOBS ---
@@ -204,7 +202,7 @@ with tab_jobs:
 
 # --- BERECHNUNGS-LOGIK ---
 
-# 1. Jobs parsen & Validieren
+# 1. Jobs parsen
 jobs_config = edited_jobs.to_dict(orient="records")
 valid_jobs = []
 for job in jobs_config:
@@ -213,10 +211,6 @@ for job in jobs_config:
     job["Sonstiges (€)"] = safe_float(job.get("Sonstiges (€)"))
     for key in ["Laptop", "Smartphone", "Auto", "LKW", "Büro"]:
         job[key] = bool(job.get(key))
-    
-    # Setup Kosten pro Kopf berechnen (für das "Sonstiges" Feld, das keine AfA Regel hat, nehmen wir sofortigen Aufwand an oder pauschale)
-    # Hier: Wir trennen Asset-Kosten von "Sonstiges". Sonstiges geht direkt in OPEX/Setup, Assets in CAPEX.
-    # Annahme: "Sonstiges (€)" in der Tabelle sind einmalige Onboarding-Kosten (OPEX), nicht Assets.
     valid_jobs.append(job)
 
 # 2. Konstanten
@@ -229,14 +223,13 @@ revenue_y1 = N_start * st.session_state["arpu"] * (1 - st.session_state["discoun
 revenue_per_fte_benchmark = st.session_state["target_rev_per_fte"]
 
 # 3. Asset Register Initialisieren
-# Struktur: asset_register[Typ] = Liste von Käufen [{'year': 1, 'amount': 5, 'price': 2000}]
 asset_types = {
     "Laptop": {"price_key": "price_laptop", "ul_key": "ul_laptop"},
     "Smartphone": {"price_key": "price_phone", "ul_key": "ul_phone"},
     "Auto": {"price_key": "price_car", "ul_key": "ul_car"},
     "LKW": {"price_key": "price_truck", "ul_key": "ul_truck"},
     "Büro": {"price_key": "price_desk", "ul_key": "ul_desk"},
-    "Misc": {"price_key": None, "ul_key": "depreciation_misc"} # Für pauschales Capex
+    "Misc": {"price_key": None, "ul_key": "depreciation_misc"} 
 }
 asset_register = {k: [] for k in asset_types.keys()}
 
@@ -253,7 +246,7 @@ retained_earnings = 0.0
 wage_factor = 1.0
 debt_prev = st.session_state["loan_initial"]
 
-asset_details_log = [] # Für den Tab "Abschreibungen" Übersicht
+asset_details_log = []
 
 for t in range(1, 11):
     row = {"Jahr": t}
@@ -277,18 +270,13 @@ for t in range(1, 11):
     
     daily_personnel_cost = 0
     setup_opex = 0
-    
-    # FTE Berechnung pro Rolle
     current_ftes_by_role = {}
-    
-    # Bedarf an Assets für dieses Jahr berechnen
     asset_needs = {k: 0.0 for k in asset_types.keys() if k != "Misc"}
     
     for job in valid_jobs:
         role = job["Job Titel"]
         base_fte = job["FTE Jahr 1"]
         
-        # Skalierung
         if t == 1:
             curr_fte = base_fte
         else:
@@ -303,16 +291,13 @@ for t in range(1, 11):
         if curr_fte > 0: row[f"FTE {role}"] = curr_fte
         else: row[f"FTE {role}"] = 0.0
         
-        # Gehaltskosten
         cost = job["Jahresgehalt (€)"] * curr_fte * wage_factor * (1 + st.session_state["lnk_pct"]/100)
         daily_personnel_cost += cost
         
-        # Einmalige Setup-Kosten (OPEX) für NEUE Mitarbeiter (Sonstiges Feld)
         prev = prev_ftes_by_role.get(role, 0) if t > 1 else 0
         delta = max(0, curr_fte - prev)
         setup_opex += delta * job["Sonstiges (€)"]
         
-        # Asset Bedarf summieren
         if job["Laptop"]: asset_needs["Laptop"] += curr_fte
         if job["Smartphone"]: asset_needs["Smartphone"] += curr_fte
         if job["Auto"]: asset_needs["Auto"] += curr_fte
@@ -335,23 +320,18 @@ for t in range(1, 11):
     })
     capex_now += capex_misc
     
-    # 2. Job-Assets (Laptop, etc.)
+    # 2. Job-Assets
     for atype, needed_count in asset_needs.items():
         price = st.session_state[asset_types[atype]["price_key"]]
         ul = st.session_state[asset_types[atype]["ul_key"]]
         
-        # Wie viele funktionierende Assets haben wir noch?
-        # Ein Asset ist gültig, wenn: Kaufjahr + Nutzungsdauer > aktuelles Jahr
         valid_assets = 0
         for purchase in asset_register[atype]:
             age = t - purchase["year"]
             if age < purchase["ul"]:
                 valid_assets += purchase["amount"]
         
-        # Bedarf ermitteln (Wachstum + Ersatz)
-        # Wenn needed_count > valid_assets, müssen wir kaufen.
         buy_count = max(0, needed_count - valid_assets)
-        
         if buy_count > 0:
             total_cost = buy_count * price
             capex_now += total_cost
@@ -359,20 +339,16 @@ for t in range(1, 11):
                 "year": t, "amount": buy_count, "price": price, "total_cost": total_cost, "ul": ul
             })
             
-    # 3. Abschreibung berechnen (über alle Register)
+    # 3. Abschreibung
     for atype, purchases in asset_register.items():
         type_depr = 0
         for p in purchases:
-            # Ist das Asset noch in der Abschreibung?
-            # Lineare AfA: Cost / UL
-            # Beginnt im Kaufjahr (Vereinfachung: Ganzjahresabschreibung)
             age = t - p["year"]
             if 0 <= age < p["ul"]:
                 charge = p["total_cost"] / p["ul"]
                 type_depr += charge
         
         depreciation_now += type_depr
-        # Log für Tabelle
         asset_details_log.append({
             "Jahr": t, "Typ": atype, "Invest (€)": sum(p["total_cost"] for p in purchases if p["year"]==t), 
             "AfA (€)": type_depr
@@ -455,10 +431,8 @@ df_assets_log = pd.DataFrame(asset_details_log)
 
 # --- VISUALISIERUNG ---
 
-# Tab Abschreibungen Detailansicht
 with tab_assets:
     st.subheader("Detailauswertung Anlagevermögen")
-    # Pivot für bessere Lesbarkeit: Zeilen=Jahre, Spalten=Typen
     if not df_assets_log.empty:
         col_log1, col_log2 = st.columns(2)
         with col_log1:
@@ -470,7 +444,6 @@ with tab_assets:
             pivot_afa = df_assets_log.pivot(index="Jahr", columns="Typ", values="AfA (€)")
             st.dataframe(pivot_afa.style.format("{:,.0f}"))
 
-# Dashboard
 with tab_dash:
     st.markdown("### KPIs Jahr 10")
     k1, k2, k3, k4 = st.columns(4)
@@ -491,12 +464,11 @@ with tab_dash:
     
     export_cols = [
         "Umsatz", "Gesamtkosten (OPEX)", "Personalkosten", "EBITDA", "Abschreibungen", "EBIT", "Jahresüberschuss",
-        "Investitionen (Assets)", "Kasse", "Bankdarlehen", "Bilanz Check"
+        "Investitionen (Assets)", "Kasse", "Bankdarlehen", "Bilanz Check", "Anlagevermögen"
     ]
     csv = df.set_index("Jahr")[export_cols].T.to_csv(sep=";", decimal=",").encode('utf-8')
     st.download_button("📊 Report herunterladen", csv, "report_complete.csv", "text/csv")
 
-# Tabellen
 with tab_guv: st.dataframe(df.set_index("Jahr")[["Umsatz", "Personalkosten", "Zinsaufwand", "Abschreibungen", "EBITDA", "Jahresüberschuss"]].style.format("€ {:,.0f}"))
 with tab_cf: st.dataframe(df.set_index("Jahr")[["Jahresüberschuss", "Abschreibungen", "Investitionen (Assets)", "Kreditaufnahme", "Tilgung", "Kasse"]].style.format("€ {:,.0f}"))
 with tab_bilanz:

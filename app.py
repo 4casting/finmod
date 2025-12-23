@@ -5,23 +5,38 @@ import json
 import numpy as np
 
 # --- KONFIGURATION ---
-st.set_page_config(page_title="Finanzmodell Pro: Custom Jobs", layout="wide")
-st.title("Integriertes Finanzmodell: Custom Jobs & Ressourcen")
+st.set_page_config(page_title="Finanzmodell Pro: 15 Positionen", layout="wide")
+st.title("Integriertes Finanzmodell: 15 Positionen Slots")
 
 # --- INITIALISIERUNG (STATE) ---
 if "current_jobs_df" not in st.session_state:
-    # Wir erstellen eine robuste Standard-Tabelle mit echten Datentypen
-    default_data = [
+    # 1. Die vordefinierten Rollen
+    defined_roles = [
         {"Job Titel": "Geschäftsführer", "Jahresgehalt (€)": 120000.0, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 0.0},
         {"Job Titel": "Vertriebsleiter", "Jahresgehalt (€)": 80000.0, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 0.0},
         {"Job Titel": "Sales Manager", "Jahresgehalt (€)": 50000.0, "FTE Jahr 1": 3.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 500.0},
         {"Job Titel": "Marketing", "Jahresgehalt (€)": 45000.0, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": False, "Auto": False, "LKW": False, "Büro": True, "Sonstiges (€)": 2000.0},
         {"Job Titel": "Techniker", "Jahresgehalt (€)": 40000.0, "FTE Jahr 1": 2.0, "Laptop": False, "Smartphone": True, "Auto": False, "LKW": True, "Büro": False, "Sonstiges (€)": 1000.0},
         {"Job Titel": "Buchhaltung", "Jahresgehalt (€)": 42000.0, "FTE Jahr 1": 0.5, "Laptop": True, "Smartphone": False, "Auto": False, "LKW": False, "Büro": True, "Sonstiges (€)": 0.0},
-        # Ihr Wunsch: Platzhalter-Zeile
-        {"Job Titel": "Neue Position (bitte umbenennen)", "Jahresgehalt (€)": 0.0, "FTE Jahr 1": 0.0, "Laptop": False, "Smartphone": False, "Auto": False, "LKW": False, "Büro": False, "Sonstiges (€)": 0.0},
     ]
-    st.session_state["current_jobs_df"] = pd.DataFrame(default_data)
+    
+    # 2. Auffüllen bis auf 15 Slots mit Platzhaltern
+    total_slots = 15
+    current_count = len(defined_roles)
+    for i in range(current_count + 1, total_slots + 1):
+        defined_roles.append({
+            "Job Titel": f"Position {i} (Platzhalter)", 
+            "Jahresgehalt (€)": 0.0, 
+            "FTE Jahr 1": 0.0, 
+            "Laptop": False, 
+            "Smartphone": False, 
+            "Auto": False, 
+            "LKW": False, 
+            "Büro": False, 
+            "Sonstiges (€)": 0.0
+        })
+        
+    st.session_state["current_jobs_df"] = pd.DataFrame(defined_roles)
 
 # --- HILFSFUNKTIONEN ---
 
@@ -143,6 +158,8 @@ with tab_input:
 # --- TAB 2: JOBS & RESSOURCEN ---
 with tab_res:
     st.header("Personal & Assets")
+    st.info("Hier können Sie bis zu 15 Positionen definieren. Nicht benötigte Positionen einfach mit 0 FTE/Gehalt stehen lassen.")
+    
     col_r1, col_r2 = st.columns([1, 2])
     
     with col_r1:
@@ -157,19 +174,20 @@ with tab_res:
         depreciation_period = st.number_input("Abschreibung (Jahre)", value=5, key="depreciation")
         
     with col_r2:
-        st.subheader("Job Definitionen")
+        st.subheader("Job Definitionen (15 Slots)")
         
-        # DataFrame aus State laden und sicherstellen, dass Typen korrekt sind
+        # DataFrame aus State laden
         df_edit = st.session_state["current_jobs_df"].copy()
         
-        # Typ-Erzwingung (Verhindert "blocked" fields)
+        # Typ-Erzwingung
         df_edit["Jahresgehalt (€)"] = pd.to_numeric(df_edit["Jahresgehalt (€)"], errors='coerce').fillna(0.0)
         df_edit["FTE Jahr 1"] = pd.to_numeric(df_edit["FTE Jahr 1"], errors='coerce').fillna(0.0)
         df_edit["Sonstiges (€)"] = pd.to_numeric(df_edit["Sonstiges (€)"], errors='coerce').fillna(0.0)
         
+        # Editor auf "fixed" Zeilenanzahl setzen
         edited_jobs = st.data_editor(
             df_edit,
-            num_rows="dynamic",
+            num_rows="fixed",  # KEIN Hinzufügen/Löschen möglich
             use_container_width=True,
             key="job_editor_widget",
             column_config={
@@ -182,21 +200,20 @@ with tab_res:
                 "Auto": st.column_config.CheckboxColumn("Auto", default=False),
                 "LKW": st.column_config.CheckboxColumn("LKW", default=False),
                 "Büro": st.column_config.CheckboxColumn("Büro", default=False),
-            }
+            },
+            hide_index=True
         )
         st.session_state["current_jobs_df"] = edited_jobs
 
 # --- BERECHNUNG ---
 
-# Konvertierung zu Dicts und Reinigung
 jobs_config = edited_jobs.to_dict(orient="records")
 valid_jobs = []
 
 for job in jobs_config:
-    # 1. Titel muss existieren (Leere Zeilen ignorieren)
-    if not job.get("Job Titel") or str(job.get("Job Titel")).strip() == "":
-        continue
-        
+    # Nur Jobs mit FTE > 0 ODER Gehalt > 0 berücksichtigen (um leere Platzhalter im Chart auszublenden)
+    # Oder wir nehmen alles, wo ein Titel steht, aber berechnen nur, wenn Werte da sind.
+    
     # 2. Werte sicher parsen
     job["FTE Jahr 1"] = safe_float(job.get("FTE Jahr 1"))
     job["Jahresgehalt (€)"] = safe_float(job.get("Jahresgehalt (€)"))
@@ -231,7 +248,7 @@ revenue_y1 = N_start * ARPU * (1 - discount_total/100)
 if total_fte_y1 > 0:
     revenue_per_fte_benchmark = revenue_y1 / total_fte_y1
 else:
-    revenue_per_fte_benchmark = 0 # Vermeidet Division durch Null
+    revenue_per_fte_benchmark = 0 
 
 # Kreditplan
 loan_df = calculate_loan_schedule(loan_amount, loan_rate, int(loan_years))
@@ -279,17 +296,28 @@ for t in range(1, 11):
         role = job["Job Titel"]
         base_fte = job["FTE Jahr 1"]
         
-        if t == 1:
+        # Nur berechnen, wenn im Basisjahr auch jemand da ist, sonst kann nichts skalieren
+        # (Oder wenn wir 0 haben, bleibt es 0)
+        if base_fte <= 0:
+            curr_fte = 0
+        elif t == 1:
             curr_fte = base_fte
         else:
             share = base_fte / total_fte_y1 if total_fte_y1 > 0 else 0
             req = target_total_fte * share
-            # Ratchet: Nicht unter Vorjahr fallen
+            # Ratchet
             curr_fte = max(req, prev_ftes_by_role.get(role, 0))
             
         current_ftes_by_role[role] = curr_fte
         total_fte_this_year += curr_fte
-        row[f"FTE {role}"] = curr_fte
+        
+        # Spalte nur schreiben, wenn relevant (FTE > 0) um Chart sauber zu halten
+        if curr_fte > 0:
+            row[f"FTE {role}"] = curr_fte
+        else:
+            # Damit Pandas nicht meckert, falls Spalte mal da mal nicht, 
+            # schreiben wir 0 rein, aber filtern es beim Chart später vllt raus
+            row[f"FTE {role}"] = 0.0
         
         # Kosten
         cost = job["Jahresgehalt (€)"] * curr_fte * wage_factor * (1 + lnk_pct)
@@ -379,8 +407,11 @@ with tab_dash:
         st.line_chart(df.set_index("Jahr")[["Umsatz", "Gesamtkosten (OPEX)", "EBITDA"]])
     with c2:
         st.subheader("Job-Entwicklung")
+        # Zeige nur Spalten an, die "FTE " enthalten und wo in Jahr 10 > 0 steht (Platzhalter ausblenden)
         job_cols = [c for c in df.columns if c.startswith("FTE ") and c != "FTE Total"]
-        st.bar_chart(df.set_index("Jahr")[job_cols], stack=True)
+        # Filtern: Nur Jobs, die am Ende existieren
+        active_job_cols = [c for c in job_cols if df[c].sum() > 0]
+        st.bar_chart(df.set_index("Jahr")[active_job_cols], stack=True)
     
     csv = df.to_csv(sep=";", decimal=",").encode('utf-8')
     st.download_button("📊 Report (CSV)", csv, "report.csv", "text/csv")

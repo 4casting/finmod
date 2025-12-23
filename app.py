@@ -80,22 +80,20 @@ class PDFReport(FPDF):
         if title:
             self.chapter_title(title)
         
-        self.set_font('Arial', 'B', 8)
+        self.set_font('Arial', 'B', 7) # Kleinere Schrift für breite Tabellen
         
         # Header
-        # Index Spalte (Labels) etwas breiter
         self.cell(40, 7, "", 1)
         for col in df.columns:
             self.cell(col_width, 7, str(col), 1, 0, 'C')
         self.ln()
         
         # Rows
-        self.set_font('Arial', '', 8)
+        self.set_font('Arial', '', 7)
         for index, row in df.iterrows():
             self.cell(40, 7, str(index), 1) # Zeilenbeschriftung
             for col in df.columns:
                 val = row[col]
-                # Formatierung
                 if isinstance(val, (int, float)):
                     txt = f"{val:,.0f}".replace(",", ".")
                 else:
@@ -107,7 +105,7 @@ class PDFReport(FPDF):
     def add_plot(self, fig):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
             fig.savefig(tmpfile.name, dpi=100, bbox_inches='tight')
-            self.image(tmpfile.name, w=270) # Breite an A4 Landscape anpassen
+            self.image(tmpfile.name, w=260) 
 
 # Funktion zum Generieren des PDF
 def create_pdf(df_results, inputs, jobs_df):
@@ -115,27 +113,24 @@ def create_pdf(df_results, inputs, jobs_df):
     pdf.alias_nb_pages()
     pdf.add_page()
     
-    # 1. Management Summary (KPIs Jahr 10)
+    # 1. Management Summary
     pdf.chapter_title("Management Summary (Jahr 10)")
     pdf.set_font('Arial', '', 10)
     
     kpi_cols = ["Umsatz", "EBITDA", "Jahresüberschuss", "Kasse", "FTE Total"]
     kpi_vals = df_results.iloc[-1][kpi_cols]
     
-    pdf.cell(50, 10, f"Umsatz: {kpi_vals['Umsatz']:,.0f} EUR", 0, 1)
-    pdf.cell(50, 10, f"EBITDA: {kpi_vals['EBITDA']:,.0f} EUR", 0, 1)
-    pdf.cell(50, 10, f"Cash (Y10): {kpi_vals['Kasse']:,.0f} EUR", 0, 1)
-    pdf.cell(50, 10, f"Mitarbeiter: {kpi_vals['FTE Total']:.1f}", 0, 1)
-    pdf.ln(10)
+    pdf.cell(60, 10, f"Umsatz: {kpi_vals['Umsatz']:,.0f} EUR", 0, 0)
+    pdf.cell(60, 10, f"EBITDA: {kpi_vals['EBITDA']:,.0f} EUR", 0, 0)
+    pdf.cell(60, 10, f"Cash (Y10): {kpi_vals['Kasse']:,.0f} EUR", 0, 1)
+    pdf.ln(5)
 
     # 2. Input Übersicht
     pdf.chapter_title("Wichtigste Annahmen")
-    input_text = f"""
-    Marktgröße (SAM): {inputs['sam']:,.0f} | Ziel-Marktanteil: {inputs['cap_pct']}%
-    ARPU: {inputs['arpu']} EUR | Churn: {inputs['churn']}%
-    Startkapital: {inputs['equity']:,.0f} EUR | Mindestliquidität: {inputs['min_cash']:,.0f} EUR
-    Lohnsteigerung: {inputs['wage_inc']}% | Inflation: {inputs['inflation']}%
-    """
+    pdf.set_font('Arial', '', 8)
+    input_text = f"Marktgroesse (SAM): {inputs['sam']:,.0f} | Ziel-Marktanteil: {inputs['cap_pct']}% | ARPU: {inputs['arpu']} EUR\n"
+    input_text += f"Startkapital: {inputs['equity']:,.0f} EUR | Mindestliquiditaet: {inputs['min_cash']:,.0f} EUR\n"
+    input_text += f"Lohnsteigerung: {inputs['wage_inc']}% | Inflation: {inputs['inflation']}%"
     pdf.multi_cell(0, 5, input_text)
     pdf.ln(10)
 
@@ -151,15 +146,15 @@ def create_pdf(df_results, inputs, jobs_df):
     pdf.add_table(df_cf, "Kapitalflussrechnung (Cashflow)")
 
     # 5. Bilanz (Transponiert)
+    pdf.add_page()
     bilanz_cols = ["Anlagevermögen", "Kasse", "Forderungen", "Summe Aktiva", "Eigenkapital", "Bankdarlehen", "Verb. LL", "Summe Passiva"]
     df_bil = df_results.set_index("Jahr")[bilanz_cols].T
     pdf.add_table(df_bil, "Bilanz")
 
-    # 6. Grafiken (Matplotlib)
+    # 6. Grafiken
     pdf.add_page()
     pdf.chapter_title("Finanzielle Entwicklung")
     
-    # Plot 1: Umsatz & EBITDA
     fig1, ax1 = plt.subplots(figsize=(10, 4))
     ax1.plot(df_results["Jahr"], df_results["Umsatz"], label="Umsatz", marker="o")
     ax1.bar(df_results["Jahr"], df_results["EBITDA"], label="EBITDA", alpha=0.5, color="green")
@@ -167,11 +162,10 @@ def create_pdf(df_results, inputs, jobs_df):
     ax1.legend()
     ax1.grid(True, alpha=0.3)
     pdf.add_plot(fig1)
-    plt.close(fig1) # Speicher freigeben
+    plt.close(fig1)
     
-    pdf.ln(10)
+    pdf.ln(5)
     
-    # Plot 2: Cash & Schulden
     fig2, ax2 = plt.subplots(figsize=(10, 4))
     ax2.fill_between(df_results["Jahr"], df_results["Kasse"], alpha=0.4, label="Kassenbestand")
     ax2.plot(df_results["Jahr"], df_results["Bankdarlehen"], color="red", label="Bankverbindlichkeiten", linewidth=2)
@@ -181,46 +175,43 @@ def create_pdf(df_results, inputs, jobs_df):
     pdf.add_plot(fig2)
     plt.close(fig2)
 
-    return pdf.output(dest='S').encode('latin-1', 'replace') # Return bytes
+    return pdf.output(dest='S').encode('latin-1', 'replace')
 
-# --- SIDEBAR & HEADER ---
-st.title("Integriertes Finanzmodell: Cash Sweep & Reporting")
+# --- HEADER & GLOBAL BUTTONS ---
+st.title("Integriertes Finanzmodell: Reporting Suite")
 
 col_main_act1, col_main_act2 = st.columns([1, 3])
 with col_main_act1:
     if st.button("🔄 MODELL JETZT NEU BERECHNEN", type="primary", use_container_width=True):
         st.rerun()
 with col_main_act2:
-    st.info("💡 Definieren Sie Ihre Annahmen. Der 'Export'-Button unten erstellt jetzt ein bankfähiges PDF.")
+    st.info("💡 Nach dem Anpassen der Werte klicken Sie bitte auf den Berechnen-Button, bevor Sie den Report erstellen.")
 
 # --- SZENARIO MANAGER (IMPORT / EXPORT) ---
-with st.expander("📂 Datei Speichern & Laden / PDF Export", expanded=True):
+with st.expander("📂 Datei Speichern & Laden", expanded=True):
     col_io1, col_io2 = st.columns(2)
     
     # --- EXPORT ---
     with col_io1:
-        st.markdown("##### 1. Speichern & Export")
-        # Daten sammeln
+        st.markdown("##### 1. Aktuellen Stand sichern")
         config_data = {key: st.session_state[key] for key in DEFAULTS.keys()}
+        
         if "current_jobs_df" in st.session_state:
              df_export = st.session_state["current_jobs_df"].fillna(0).copy()
              for c in ["Laptop", "Smartphone", "Auto", "LKW", "Büro"]:
                  if c in df_export.columns: df_export[c] = df_export[c].apply(bool)
              config_data["jobs_data"] = df_export.to_dict(orient="records")
              
-        c_dl1, c_dl2 = st.columns(2)
-        with c_dl1:
-            st.download_button(
-                label="💾 JSON Config speichern", 
-                data=json.dumps(config_data, indent=2), 
-                file_name="finanzmodell_config.json", 
-                mime="application/json"
-            )
-        # PDF Button Logik kommt später, wenn DF berechnet ist (siehe unten)
+        st.download_button(
+            label="💾 Als JSON herunterladen", 
+            data=json.dumps(config_data, indent=2), 
+            file_name="finanzmodell_config.json", 
+            mime="application/json"
+        )
 
     # --- IMPORT ---
     with col_io2:
-        st.markdown("##### 2. Konfiguration laden")
+        st.markdown("##### 2. Stand wiederherstellen")
         uploaded_file = st.file_uploader("JSON-Datei hier hereinziehen:", type=["json"])
         
         if uploaded_file is not None:
@@ -489,20 +480,18 @@ for t in range(1, 11):
 
 df = pd.DataFrame(results)
 
-# --- PDF ERSTELLUNG IM HINTERGRUND ---
-# Wir erzeugen das PDF Bytes-Objekt für den Download
+# --- BUTTONS FÜR PDF DOWNLOAD ---
+# PDF Erstellung
 pdf_bytes = create_pdf(df, st.session_state, pd.DataFrame(valid_jobs))
 
-# --- BUTTONS FÜR PDF DOWNLOAD ---
-# Wir platzieren den PDF Button bei Export
 with col_io1:
-    with c_dl2:
-        st.download_button(
-            label="📄 PDF Report herunterladen",
-            data=pdf_bytes,
-            file_name="finanzreport.pdf",
-            mime="application/pdf"
-        )
+    st.download_button(
+        label="📄 PDF Report herunterladen",
+        data=pdf_bytes,
+        file_name="finanzreport.pdf",
+        mime="application/pdf",
+        type="primary"
+    )
 
 # --- VISUALISIERUNG ---
 with tab_dash:

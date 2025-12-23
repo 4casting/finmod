@@ -8,9 +8,50 @@ import numpy as np
 st.set_page_config(page_title="Finanzmodell Pro", layout="wide")
 st.title("Integriertes Finanzmodell: Cash Sweep & Import/Export")
 
-# --- INITIALISIERUNG (STATE) ---
+# --- 1. DEFINITION DER STANDARDS (ZENTRAL) ---
+# Damit der Export immer funktioniert, definieren wir alle Inputs und ihre Startwerte hier.
+DEFAULTS = {
+    # Markt & Wachstum
+    "sam": 39000.0,
+    "cap_pct": 2.3,
+    "p_pct": 2.5,
+    "q_pct": 38.0,
+    "churn": 10.0,
+    "arpu": 3000.0,
+    "discount": 0.0,
+    # Finanzierung
+    "equity": 100000.0,
+    "loan_initial": 0.0,
+    "min_cash": 100000.0,
+    "loan_rate": 5.0,
+    # Personal Global
+    "wage_inc": 1.5,
+    "inflation": 2.0,
+    "lnk_pct": 25.0,
+    "target_rev_per_fte": 150000.0,
+    # Working Capital & Tax
+    "dso": 30,
+    "dpo": 30,
+    "tax_rate": 30.0,
+    "cac": 3590.0,
+    # Assets
+    "price_desk": 2500,
+    "price_laptop": 2000,
+    "price_phone": 800,
+    "price_car": 40000,
+    "price_truck": 60000,
+    "capex_annual": 5000,
+    "depreciation": 5
+}
+
+# --- 2. INITIALISIERUNG STATE ---
+# Wir stellen sicher, dass ALLE Werte im Session State existieren, BEVOR wir exportieren.
+for key, default_val in DEFAULTS.items():
+    if key not in st.session_state:
+        st.session_state[key] = default_val
+
+# Jobs Tabelle Initialisieren
 if "current_jobs_df" not in st.session_state:
-    # 1. Standard-Rollen
     defined_roles = [
         {"Job Titel": "Geschäftsführer", "Jahresgehalt (€)": 120000.0, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 0.0},
         {"Job Titel": "Vertriebsleiter", "Jahresgehalt (€)": 80000.0, "FTE Jahr 1": 1.0, "Laptop": True, "Smartphone": True, "Auto": True, "LKW": False, "Büro": True, "Sonstiges (€)": 0.0},
@@ -19,63 +60,32 @@ if "current_jobs_df" not in st.session_state:
         {"Job Titel": "Techniker", "Jahresgehalt (€)": 40000.0, "FTE Jahr 1": 2.0, "Laptop": False, "Smartphone": True, "Auto": False, "LKW": True, "Büro": False, "Sonstiges (€)": 1000.0},
         {"Job Titel": "Buchhaltung", "Jahresgehalt (€)": 42000.0, "FTE Jahr 1": 0.5, "Laptop": True, "Smartphone": False, "Auto": False, "LKW": False, "Büro": True, "Sonstiges (€)": 0.0},
     ]
-    
-    # 2. Auffüllen auf 15 Slots
-    total_slots = 15
-    current_count = len(defined_roles)
-    for i in range(current_count + 1, total_slots + 1):
+    # Auffüllen auf 15 Slots
+    for i in range(len(defined_roles) + 1, 16):
         defined_roles.append({
-            "Job Titel": f"Position {i} (Platzhalter)", 
-            "Jahresgehalt (€)": 0.0, 
-            "FTE Jahr 1": 0.0, 
-            "Laptop": False, 
-            "Smartphone": False, 
-            "Auto": False, 
-            "LKW": False, 
-            "Büro": False, 
-            "Sonstiges (€)": 0.0
+            "Job Titel": f"Position {i} (Platzhalter)", "Jahresgehalt (€)": 0.0, "FTE Jahr 1": 0.0, 
+            "Laptop": False, "Smartphone": False, "Auto": False, "LKW": False, "Büro": False, "Sonstiges (€)": 0.0
         })
-        
     st.session_state["current_jobs_df"] = pd.DataFrame(defined_roles)
 
 # --- HILFSFUNKTIONEN ---
 def safe_float(value, default=0.0):
-    """Konvertiert Input sicher in Float."""
     try:
-        if value is None: return default
-        if isinstance(value, str) and not value.strip(): return default
-        if pd.isna(value): return default
+        if value is None or (isinstance(value, str) and not value.strip()) or pd.isna(value): return default
         return float(value)
-    except (ValueError, TypeError):
-        return default
+    except: return default
 
-# --- SZENARIO MANAGER (Alle Inputs müssen hier gelistet sein!) ---
-input_keys = [
-    # Markt
-    "sam", "cap_pct", "p_pct", "q_pct", "churn", "arpu", "discount",
-    # Finanzierung
-    "equity", "loan_initial", "min_cash", "loan_rate",
-    # Personal Global
-    "wage_inc", "inflation", "lnk_pct", "target_rev_per_fte",
-    # Working Capital & Tax
-    "dso", "dpo", "tax_rate", "cac",
-    # Assets
-    "price_laptop", "price_phone", "price_car", "price_truck", "price_desk",
-    "capex_annual", "depreciation"
-]
-
+# --- SZENARIO MANAGER ---
 with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=False):
     col_io1, col_io2 = st.columns(2)
     with col_io1:
         st.markdown("### Export")
-        # Alle Keys abfragen
-        config_data = {key: st.session_state.get(key) for key in input_keys if key in st.session_state}
+        # Wir holen die Daten direkt aus dem State, der oben garantiert befüllt wurde
+        config_data = {key: st.session_state[key] for key in DEFAULTS.keys()}
         
         # Job Tabelle hinzufügen
         if "current_jobs_df" in st.session_state:
-             # NaN durch 0 ersetzen für valides JSON
              df_export = st.session_state["current_jobs_df"].fillna(0)
-             # DateTime/Bool Objekte sicherstellen
              config_data["jobs_data"] = df_export.to_dict(orient="records")
              
         st.download_button(
@@ -91,16 +101,15 @@ with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=False):
         if uploaded_file is not None:
             try:
                 data = json.load(uploaded_file)
-                
                 # 1. Simple Keys wiederherstellen
-                for key, value in data.items():
-                    if key in input_keys: 
-                        st.session_state[key] = value
+                for key, val in data.items():
+                    if key in DEFAULTS: 
+                        st.session_state[key] = val
                 
                 # 2. Job Tabelle wiederherstellen
                 if "jobs_data" in data:
                     st.session_state["current_jobs_df"] = pd.DataFrame(data["jobs_data"])
-                    # WICHTIG: Cache des Editors löschen, damit er die neuen Daten anzeigt!
+                    # Cache des Editors löschen erzwingt Neuladen
                     if "job_editor_widget" in st.session_state:
                         del st.session_state["job_editor_widget"]
                 
@@ -119,34 +128,36 @@ with tab_input:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("1. Markt & Wachstum")
-        SAM = st.number_input("SAM (Marktpotenzial)", value=39000.0, step=1000.0, key="sam")
-        CAP_percent = st.number_input("Marktanteil Ziel %", value=2.3, step=0.1, key="cap_pct")
-        SOM = SAM * (CAP_percent / 100.0)
+        # WICHTIG: Wir nutzen keinen 'value=' Parameter mehr, da der State oben initialisiert wurde.
+        # Streamlit nimmt automatisch den Wert aus st.session_state[key].
+        st.number_input("SAM (Marktpotenzial)", step=1000.0, key="sam")
+        st.number_input("Marktanteil Ziel %", step=0.1, key="cap_pct")
+        SOM = st.session_state["sam"] * (st.session_state["cap_pct"] / 100.0)
         st.info(f"SOM: {int(SOM)} Kunden")
-        p_percent = st.number_input("Innovatoren (p) %", value=2.5, step=0.1, key="p_pct")
-        q_percent = st.number_input("Imitatoren (q) %", value=38.0, step=1.0, key="q_pct")
-        churn_percent = st.number_input("Churn Rate %", value=10.0, step=1.0, key="churn")
+        st.number_input("Innovatoren (p) %", step=0.1, key="p_pct")
+        st.number_input("Imitatoren (q) %", step=1.0, key="q_pct")
+        st.number_input("Churn Rate %", step=1.0, key="churn")
         st.subheader("Umsatz")
-        ARPU = st.number_input("ARPU (€)", value=3000.0, step=100.0, key="arpu")
-        discount_total = st.slider("Rabatte %", 0.0, 20.0, 0.0, key="discount")
+        st.number_input("ARPU (€)", step=100.0, key="arpu")
+        st.slider("Rabatte %", 0.0, 20.0, key="discount")
 
     with col2:
         st.subheader("2. Finanzierung (Cash Sweep)")
         st.markdown("Automatischer Ausgleich der Liquidität über Kreditlinie.")
-        equity_initial = st.number_input("Eigenkapital Start (€)", value=100000.0, step=5000.0, key="equity")
-        loan_initial = st.number_input("Start-Schuldenstand (€)", value=0.0, step=5000.0, key="loan_initial", help="Bereits bestehende Kredite.")
-        min_cash = st.number_input("Mindest-Liquidität (Puffer) €", value=100000.0, step=5000.0, key="min_cash", help="Ziel-Kontostand.")
-        loan_rate = st.number_input("Soll-Zins Kredit %", value=5.0, step=0.1, key="loan_rate") / 100.0
+        st.number_input("Eigenkapital Start (€)", step=5000.0, key="equity")
+        st.number_input("Start-Schuldenstand (€)", step=5000.0, key="loan_initial", help="Bereits bestehende Kredite.")
+        st.number_input("Mindest-Liquidität (Puffer) €", step=5000.0, key="min_cash", help="Ziel-Kontostand.")
+        st.number_input("Soll-Zins Kredit %", step=0.1, key="loan_rate")
         
         st.markdown("---")
-        wage_inc = st.number_input("Lohnsteigerung %", value=1.5, step=0.1, key="wage_inc") / 100.0
-        inflation = st.number_input("Inflation %", value=2.0, step=0.1, key="inflation") / 100.0
-        lnk_pct = st.number_input("Lohnnebenkosten %", value=25.0, step=1.0, key="lnk_pct") / 100.0
+        st.number_input("Lohnsteigerung %", step=0.1, key="wage_inc")
+        st.number_input("Inflation %", step=0.1, key="inflation")
+        st.number_input("Lohnnebenkosten %", step=1.0, key="lnk_pct")
         st.markdown("---")
-        dso = st.number_input("DSO (Tage)", value=30, key="dso")
-        dpo = st.number_input("DPO (Tage)", value=30, key="dpo")
-        tax_rate = st.number_input("Steuersatz %", value=30.0, key="tax_rate") / 100.0
-        marketing_cac = st.number_input("Marketing CAC (€)", value=3590.0, key="cac")
+        st.number_input("DSO (Tage)", key="dso")
+        st.number_input("DPO (Tage)", key="dpo")
+        st.number_input("Steuersatz %", key="tax_rate")
+        st.number_input("Marketing CAC (€)", key="cac")
 
 # --- TAB 2: JOBS & RESSOURCEN ---
 with tab_res:
@@ -155,34 +166,27 @@ with tab_res:
     st.subheader("⚙️ Skalierung & Produktivität")
     col_scale1, col_scale2 = st.columns([1, 2])
     with col_scale1:
-        target_rev_per_fte = st.number_input(
-            "Ziel-Umsatz je FTE (€/Jahr)", 
-            value=150000.0, 
-            step=5000.0, 
-            key="target_rev_per_fte",
-            help="Steuert den Personalbedarf."
-        )
+        st.number_input("Ziel-Umsatz je FTE (€/Jahr)", step=5000.0, key="target_rev_per_fte", help="Steuert den Personalbedarf.")
     
     st.markdown("---")
     col_r1, col_r2 = st.columns([1, 2])
     
     with col_r1:
         st.subheader("Asset-Preise")
-        p_desk = st.number_input("Büro/Möbel (€)", value=2500, key="price_desk")
-        p_laptop = st.number_input("Laptop (€)", value=2000, key="price_laptop")
-        p_phone = st.number_input("Handy (€)", value=800, key="price_phone")
-        p_car = st.number_input("Auto (€)", value=40000, key="price_car")
-        p_truck = st.number_input("LKW (€)", value=60000, key="price_truck")
+        st.number_input("Büro/Möbel (€)", key="price_desk")
+        st.number_input("Laptop (€)", key="price_laptop")
+        st.number_input("Handy (€)", key="price_phone")
+        st.number_input("Auto (€)", key="price_car")
+        st.number_input("LKW (€)", key="price_truck")
         st.markdown("---")
-        capex_annual = st.number_input("Laufende Instandhaltung p.a.", value=5000, key="capex_annual")
-        depreciation_period = st.number_input("Abschreibung (Jahre)", value=5, key="depreciation")
+        st.number_input("Laufende Instandhaltung p.a.", key="capex_annual")
+        st.number_input("Abschreibung (Jahre)", key="depreciation")
         
     with col_r2:
         st.subheader("Job Definitionen (15 Slots)")
-        
         df_edit = st.session_state["current_jobs_df"].copy()
         
-        # Typ-Sicherheit für den Editor
+        # Typ-Sicherheit
         for col in ["Jahresgehalt (€)", "FTE Jahr 1", "Sonstiges (€)"]:
             df_edit[col] = pd.to_numeric(df_edit[col], errors='coerce').fillna(0.0)
         
@@ -212,69 +216,61 @@ with tab_res:
 jobs_config = edited_jobs.to_dict(orient="records")
 valid_jobs = []
 for job in jobs_config:
-    job["FTE Jahr 1"] = safe_float(job.get("FTE Jahr 1"))
-    job["Jahresgehalt (€)"] = safe_float(job.get("Jahresgehalt (€)"))
-    job["Sonstiges (€)"] = safe_float(job.get("Sonstiges (€)"))
-    
-    # Checkboxen zu Bool
-    for key in ["Laptop", "Smartphone", "Auto", "LKW", "Büro"]:
-        job[key] = bool(job.get(key))
-    
     # Setup Kosten pro Kopf berechnen
-    setup = job["Sonstiges (€)"]
-    if job["Laptop"]: setup += p_laptop
-    if job["Smartphone"]: setup += p_phone
-    if job["Auto"]: setup += p_car
-    if job["LKW"]: setup += p_truck
-    if job["Büro"]: setup += p_desk
+    setup = safe_float(job.get("Sonstiges (€)"))
+    if job.get("Laptop"): setup += st.session_state["price_laptop"]
+    if job.get("Smartphone"): setup += st.session_state["price_phone"]
+    if job.get("Auto"): setup += st.session_state["price_car"]
+    if job.get("LKW"): setup += st.session_state["price_truck"]
+    if job.get("Büro"): setup += st.session_state["price_desk"]
     job["_setup_cost_per_head"] = setup
     
+    # Werte säubern
+    job["FTE Jahr 1"] = safe_float(job.get("FTE Jahr 1"))
+    job["Jahresgehalt (€)"] = safe_float(job.get("Jahresgehalt (€)"))
     valid_jobs.append(job)
 
-# 2. Konstanten
+# 2. Konstanten aus State
 total_fte_y1 = sum(j["FTE Jahr 1"] for j in valid_jobs)
-P_bass = st.session_state.get("p_pct", 2.5) / 100.0
-Q_bass = st.session_state.get("q_pct", 38.0) / 100.0
-CHURN = st.session_state.get("churn", 10.0) / 100.0
+P = st.session_state["p_pct"] / 100.0
+Q = st.session_state["q_pct"] / 100.0
+CHURN = st.session_state["churn"] / 100.0
 N_start = 10.0 
-revenue_y1 = N_start * ARPU * (1 - discount_total/100)
-
-revenue_per_fte_benchmark = target_rev_per_fte
+revenue_y1 = N_start * st.session_state["arpu"] * (1 - st.session_state["discount"]/100)
 
 # 3. Simulation
 results = []
 n_prev = N_start
 prev_ftes_by_role = {j["Job Titel"]: j["FTE Jahr 1"] for j in valid_jobs}
 
-# Startwerte vor T1
-cash = 0.0 # Wird in T1 berechnet
+# Startwerte
+cash = 0.0 # Wird T1 berechnet
 fixed_assets = 0.0
 equity = 0.0
-debt = loan_initial
+debt = st.session_state["loan_initial"]
 retained_earnings = 0.0
 wage_factor = 1.0
-debt_prev = loan_initial
+debt_prev = st.session_state["loan_initial"]
 
 for t in range(1, 11):
     row = {"Jahr": t}
     
-    # --- A. Markt ---
+    # --- Markt ---
     if t == 1: n_t = N_start
     else:
         pot = max(0, SOM - n_prev)
-        adopt = (P_bass + Q_bass * (n_prev / SOM))
+        adopt = (P + Q * (n_prev / SOM))
         n_t = n_prev * (1 - CHURN) + (adopt * pot)
     row["Kunden"] = n_t
-    net_rev = n_t * ARPU * (1 - discount_total/100)
+    net_rev = n_t * st.session_state["arpu"] * (1 - st.session_state["discount"]/100)
     row["Umsatz"] = net_rev
     
-    # --- B. Personal ---
-    if revenue_per_fte_benchmark > 0:
-        target_total_fte = net_rev / revenue_per_fte_benchmark
-    else:
-        target_total_fte = 0
+    # --- Personal ---
+    target_total_fte = 0
+    if st.session_state["target_rev_per_fte"] > 0:
+        target_total_fte = net_rev / st.session_state["target_rev_per_fte"]
         
-    if t > 1: wage_factor *= (1 + wage_inc) * (1 + inflation)
+    if t > 1: wage_factor *= (1 + st.session_state["wage_inc"]/100) * (1 + st.session_state["inflation"]/100)
     
     daily_personnel_cost = 0
     daily_capex_assets = 0
@@ -301,7 +297,7 @@ for t in range(1, 11):
         if curr_fte > 0: row[f"FTE {role}"] = curr_fte
         else: row[f"FTE {role}"] = 0.0
         
-        cost = job["Jahresgehalt (€)"] * curr_fte * wage_factor * (1 + lnk_pct)
+        cost = job["Jahresgehalt (€)"] * curr_fte * wage_factor * (1 + st.session_state["lnk_pct"]/100)
         daily_personnel_cost += cost
         
         prev = prev_ftes_by_role.get(role, 0) if t > 1 else 0
@@ -312,56 +308,54 @@ for t in range(1, 11):
     row["Personalkosten"] = daily_personnel_cost
     row["Investitionen (Assets)"] = daily_capex_assets
     
-    # --- C. GuV ---
-    cost_mkt = n_t * marketing_cac
+    # --- GuV ---
+    cost_mkt = n_t * st.session_state["cac"]
+    # Vereinfachte Annahmen für sonstige Kosten
     cost_cogs = net_rev * 0.10
     cost_cons = net_rev * 0.02
-    total_opex = daily_personnel_cost + cost_mkt + cost_cogs + cost_cons + capex_annual
+    total_opex = daily_personnel_cost + cost_mkt + cost_cogs + cost_cons + st.session_state["capex_annual"]
     row["Gesamtkosten (OPEX)"] = total_opex
     ebitda = net_rev - total_opex
     
     capex_now = daily_capex_assets
-    deprec = (fixed_assets + capex_now) / depreciation_period
+    deprec = (fixed_assets + capex_now) / st.session_state["depreciation"]
     ebit = ebitda - deprec
     
-    # Zinsen auf Basis Vorjahresschulden
-    interest = debt_prev * loan_rate
-    
+    # Zinsen
+    interest = debt_prev * (st.session_state["loan_rate"] / 100.0)
     ebt = ebit - interest
-    tax = max(0, ebt * tax_rate)
+    tax = max(0, ebt * (st.session_state["tax_rate"] / 100.0))
     net_income = ebt - tax
     
     row["EBITDA"] = ebitda
     row["EBIT"] = ebit
     row["Jahresüberschuss"] = net_income
     
-    # --- D. Cashflow & Finanzierung ---
-    ar_end = net_rev * (dso/365.0)
-    ap_end = total_opex * (dpo/365.0)
+    # --- Cashflow & Finanzierung ---
+    ar_end = net_rev * (st.session_state["dso"]/365.0)
+    ap_end = total_opex * (st.session_state["dpo"]/365.0)
     ar_prev = results[-1]["Forderungen"] if t > 1 else 0
     ap_prev = results[-1]["Verb. LL"] if t > 1 else 0
     
     cf_op = net_income + deprec - (ar_end - ar_prev) + (ap_end - ap_prev)
     cf_inv = -capex_now
     
-    # Cash Sweep Berechnung
-    # Verfügbares Geld VOR Kreditmaßnahmen
+    # Cash Sweep
     cash_start = results[-1]["Kasse"] if t > 1 else 0.0
-    equity_in = equity_initial if t == 1 else 0.0
+    equity_in = st.session_state["equity"] if t == 1 else 0.0
     
     cash_pre_fin = cash_start + cf_op + cf_inv + equity_in
     
-    # Differenz zum Zielbestand
-    gap = min_cash - cash_pre_fin
+    # Lücke zum Mindestbestand
+    gap = st.session_state["min_cash"] - cash_pre_fin
     
     borrow_amount = 0.0
     repay_amount = 0.0
     
     if gap > 0:
-        # Zu wenig Geld -> Kredit aufnehmen
         borrow_amount = gap
     else:
-        # Zu viel Geld -> Kredit tilgen (sofern Schulden da sind)
+        # Überschuss zum Tilgen nutzen
         surplus = abs(gap)
         repay_amount = min(debt_prev, surplus)
         
@@ -372,14 +366,14 @@ for t in range(1, 11):
     cash = cash_start + delta_cash
     debt = debt_prev + borrow_amount - repay_amount
     
-    # --- E. Bilanz ---
+    # --- Bilanz ---
     fixed_assets = max(0, fixed_assets + capex_now - deprec)
     if t==1:
         retained_earnings = net_income
-        eq_curr = equity_initial + retained_earnings
+        eq_curr = st.session_state["equity"] + retained_earnings
     else:
         retained_earnings += net_income
-        eq_curr = equity_initial + retained_earnings
+        eq_curr = st.session_state["equity"] + retained_earnings
         
     row["Kasse"] = cash
     row["Anlagevermögen"] = fixed_assets
@@ -412,8 +406,8 @@ with tab_dash:
     k3.metric("FTEs", f"{df['FTE Total'].iloc[-1]:.1f}")
     k4.metric("Kasse", f"€ {df['Kasse'].iloc[-1]:,.0f}")
     
-    st.markdown("### Finanzierungsverlauf (Cash Sweep)")
-    st.caption("Das Modell hält die Kasse automatisch auf dem Mindest-Level (Linie) und nimmt dafür Kredite auf oder tilgt sie.")
+    st.markdown("### Finanzierung (Cash Sweep)")
+    st.caption("Das Modell regelt automatisch Kreditaufnahme/Tilgung, um die Mindestliquidität zu halten.")
     st.line_chart(df.set_index("Jahr")[["Kasse", "Bankdarlehen"]])
     
     c1, c2 = st.columns(2)
@@ -426,15 +420,12 @@ with tab_dash:
         active_job_cols = [c for c in job_cols if df[c].sum() > 0]
         st.bar_chart(df.set_index("Jahr")[active_job_cols], stack=True)
     
-    st.markdown("### Report Export")
-    # Transponieren für PDF-ähnliches Format
     export_cols = [
         "Umsatz", "Gesamtkosten (OPEX)", "EBITDA", "EBIT", "Zinsaufwand", "Jahresüberschuss",
         "Kasse", "Bankdarlehen", "Kreditaufnahme", "Tilgung", "Eigenkapital", "Bilanz Check"
     ]
-    df_export = df.set_index("Jahr")[export_cols].T
-    csv = df_export.to_csv(sep=";", decimal=",").encode('utf-8')
-    st.download_button("📊 Report herunterladen (CSV, Jahre horizontal)", csv, "report_horizontal.csv", "text/csv")
+    csv = df.set_index("Jahr")[export_cols].T.to_csv(sep=";", decimal=",").encode('utf-8')
+    st.download_button("📊 Report herunterladen (Jahre horizontal)", csv, "report_horizontal.csv", "text/csv")
 
 # --- TABELLEN ---
 with tab_guv: st.dataframe(df.set_index("Jahr")[["Umsatz", "Personalkosten", "Zinsaufwand", "EBITDA", "Jahresüberschuss"]].style.format("€ {:,.0f}"))

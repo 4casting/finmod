@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import math
-import numpy as np
+import json
 
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Integrated Financial Model", layout="wide")
@@ -43,6 +43,51 @@ def calculate_loan_schedule(principal, rate, years):
         })
     return pd.DataFrame(schedule)
 
+# --- SZENARIO MANAGER (INPUT UPLOAD/DOWNLOAD) ---
+
+# Liste aller Keys, die gespeichert werden sollen
+input_keys = [
+    "sam", "cap_pct", "p_pct", "q_pct", "churn",
+    "arpu", "discount",
+    "fte_md", "fte_exec", "fte_field", "fte_int", "fte_mkt", "fte_acc",
+    "wage_inc", "inflation", "lnk_pct", "cac",
+    "equity", "loan", "loan_rate", "loan_years",
+    "capex_init", "capex_annual", "depreciation",
+    "dso", "dpo", "tax_rate"
+]
+
+with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=False):
+    col_io1, col_io2 = st.columns(2)
+    
+    with col_io1:
+        st.markdown("### Inputs exportieren")
+        # Aktuelle Werte aus Session State holen
+        current_config = {key: st.session_state.get(key) for key in input_keys if key in st.session_state}
+        json_string = json.dumps(current_config, indent=2)
+        
+        st.download_button(
+            label="💾 Input-Konfiguration herunterladen (JSON)",
+            data=json_string,
+            file_name="finanzmodell_config.json",
+            mime="application/json"
+        )
+
+    with col_io2:
+        st.markdown("### Inputs importieren")
+        uploaded_file = st.file_uploader("Konfigurationsdatei hochladen", type=["json"])
+        if uploaded_file is not None:
+            try:
+                data = json.load(uploaded_file)
+                # Werte in Session State schreiben
+                for key, value in data.items():
+                    if key in input_keys:
+                        st.session_state[key] = value
+                st.success("Konfiguration geladen! Die Werte wurden aktualisiert.")
+                # Seite neu laden erzwingen damit Widgets updaten (Streamlit behavior workaround)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Laden: {e}")
+
 # --- TABS STRUKTUR ---
 tab_input, tab_dash, tab_guv, tab_cf, tab_bilanz, tab_loan = st.tabs([
     "📝 Inputs", "📊 Dashboard", "📑 GuV", "💰 Cashflow", "⚖️ Bilanz", "🏦 Kredit"
@@ -56,40 +101,40 @@ with tab_input:
     
     with col_main1:
         st.subheader("1. Markt & Wachstum (Bass)")
-        # Explizite Zuweisung von value und step verhindert Streamlit-Fehler
-        SAM = st.number_input("SAM (Gesamtmarkt)", value=39000.0, step=1000.0)
-        CAP_percent = st.number_input("Marktanteil Ziel (CAP) %", value=2.3, step=0.1)
+        # WICHTIG: 'key' Parameter hinzugefügt für State Management
+        SAM = st.number_input("SAM (Gesamtmarkt)", value=39000.0, step=1000.0, key="sam")
+        CAP_percent = st.number_input("Marktanteil Ziel (CAP) %", value=2.3, step=0.1, key="cap_pct")
         SOM = SAM * (CAP_percent / 100.0)
         st.info(f"Effektiver Zielmarkt (SOM): {int(SOM)} Kunden")
         
-        p_percent = st.number_input("Innovatoren (p) %", value=2.5, step=0.1)
-        q_percent = st.number_input("Imitatoren (q) %", value=38.0, step=1.0)
-        churn_percent = st.number_input("Churn Rate % (jährlich)", value=10.0, step=1.0)
+        p_percent = st.number_input("Innovatoren (p) %", value=2.5, step=0.1, key="p_pct")
+        q_percent = st.number_input("Imitatoren (q) %", value=38.0, step=1.0, key="q_pct")
+        churn_percent = st.number_input("Churn Rate % (jährlich)", value=10.0, step=1.0, key="churn")
         
         st.subheader("Umsatztreiber")
-        ARPU = st.number_input("ARPU (€ pro Kunde/Jahr)", value=3000.0, step=100.0)
-        discount_total = st.slider("Rabatte & Skonto gesamt (%)", 0.0, 20.0, 0.0, 0.5)
+        ARPU = st.number_input("ARPU (€ pro Kunde/Jahr)", value=3000.0, step=100.0, key="arpu")
+        discount_total = st.slider("Rabatte & Skonto gesamt (%)", 0.0, 20.0, 0.0, 0.5, key="discount")
 
     with col_main2:
         st.subheader("2. Personal (Startjahr)")
         st.caption("FTEs im Jahr 1. In Folgejahren skaliert das Modell automatisch.")
         
         c1, c2, c3 = st.columns(3)
-        with c1: fte_md_y1 = st.number_input("MD (Layer 1)", value=0.0, step=0.5)
-        with c2: fte_exec_y1 = st.number_input("Execs (Layer 2)", value=1.0, step=0.5)
+        with c1: fte_md_y1 = st.number_input("MD (Layer 1)", value=0.0, step=0.5, key="fte_md")
+        with c2: fte_exec_y1 = st.number_input("Execs (Layer 2)", value=1.0, step=0.5, key="fte_exec")
         with c3: 
-            fte_field = st.number_input("Außendienst", value=0.25, step=0.125)
-            fte_int = st.number_input("Innendienst", value=0.5, step=0.125)
-            fte_mkt = st.number_input("Marketing", value=0.125, step=0.125)
-            fte_acc = st.number_input("Buchhaltung", value=0.125, step=0.125)
+            fte_field = st.number_input("Außendienst", value=0.25, step=0.125, key="fte_field")
+            fte_int = st.number_input("Innendienst", value=0.5, step=0.125, key="fte_int")
+            fte_mkt = st.number_input("Marketing", value=0.125, step=0.125, key="fte_mkt")
+            fte_acc = st.number_input("Buchhaltung", value=0.125, step=0.125, key="fte_acc")
         
         fte_l3_total = fte_field + fte_int + fte_mkt + fte_acc
         
         st.subheader("3. Kosten-Parameter")
-        wage_inc = st.number_input("Lohnsteigerung p.a. (%)", value=1.5, step=0.1) / 100.0
-        inflation = st.number_input("Inflation p.a. (%)", value=2.0, step=0.1) / 100.0
-        lnk_pct = st.number_input("Lohnnebenkosten (%)", value=25.0, step=1.0) / 100.0
-        marketing_cac = st.number_input("Marketing CAC (€ pro Neukunde)", value=3590.0, step=100.0)
+        wage_inc = st.number_input("Lohnsteigerung p.a. (%)", value=1.5, step=0.1, key="wage_inc") / 100.0
+        inflation = st.number_input("Inflation p.a. (%)", value=2.0, step=0.1, key="inflation") / 100.0
+        lnk_pct = st.number_input("Lohnnebenkosten (%)", value=25.0, step=1.0, key="lnk_pct") / 100.0
+        marketing_cac = st.number_input("Marketing CAC (€ pro Neukunde)", value=3590.0, step=100.0, key="cac")
 
     st.markdown("---")
     
@@ -97,22 +142,22 @@ with tab_input:
     
     with col_fin1:
         st.subheader("4. Finanzierung")
-        equity_initial = st.number_input("Eigenkapital Einlage (€)", value=100000.0, step=5000.0)
-        loan_amount = st.number_input("Bankdarlehen (€)", value=100000.0, step=5000.0)
-        loan_rate = st.number_input("Zinssatz Kredit (%)", value=5.0, step=0.1) / 100.0
-        loan_years = st.number_input("Laufzeit Kredit (Jahre)", value=10, step=1)
+        equity_initial = st.number_input("Eigenkapital Einlage (€)", value=100000.0, step=5000.0, key="equity")
+        loan_amount = st.number_input("Bankdarlehen (€)", value=100000.0, step=5000.0, key="loan")
+        loan_rate = st.number_input("Zinssatz Kredit (%)", value=5.0, step=0.1, key="loan_rate") / 100.0
+        loan_years = st.number_input("Laufzeit Kredit (Jahre)", value=10, step=1, key="loan_years")
     
     with col_fin2:
         st.subheader("5. Investitionen (CAPEX)")
-        capex_initial = st.number_input("Start-Investitionen (IT/Büro) €", value=20000.0, step=1000.0, help="Anschaffungen im Jahr 1")
-        capex_annual = st.number_input("Laufende Investitionen p.a. €", value=2000.0, step=500.0)
-        depreciation_period = st.number_input("Abschreibungsdauer Ø (Jahre)", value=5, step=1)
+        capex_initial = st.number_input("Start-Investitionen (IT/Büro) €", value=20000.0, step=1000.0, key="capex_init", help="Anschaffungen im Jahr 1")
+        capex_annual = st.number_input("Laufende Investitionen p.a. €", value=2000.0, step=500.0, key="capex_annual")
+        depreciation_period = st.number_input("Abschreibungsdauer Ø (Jahre)", value=5, step=1, key="depreciation")
         
     with col_fin3:
         st.subheader("6. Working Capital & Steuern")
-        dso = st.number_input("DSO (Zahlungsziel Kunden Tage)", value=30, step=1)
-        dpo = st.number_input("DPO (Zahlungsziel Lief. Tage)", value=30, step=1)
-        tax_rate = st.number_input("Gesamt-Steuersatz (Körp.+Gew.) %", value=30.0, step=1.0) / 100.0
+        dso = st.number_input("DSO (Zahlungsziel Kunden Tage)", value=30, step=1, key="dso")
+        dpo = st.number_input("DPO (Zahlungsziel Lief. Tage)", value=30, step=1, key="dpo")
+        tax_rate = st.number_input("Gesamt-Steuersatz (Körp.+Gew.) %", value=30.0, step=1.0, key="tax_rate") / 100.0
 
 # --- BERECHNUNGS-ENGINE ---
 
@@ -190,6 +235,9 @@ for t in range(1, 11):
         curr_l3, curr_exec, curr_md = fte_l3_total, fte_exec_y1, fte_md_y1
         
     row["FTE Total"] = curr_l3 + curr_exec + curr_md
+    row["FTE MD"] = curr_md
+    row["FTE Exec"] = curr_exec
+    row["FTE Staff"] = curr_l3
     
     # 4. Kosten
     
@@ -217,6 +265,9 @@ for t in range(1, 11):
     
     # WICHTIG: Gesamtkosten speichern für Charts!
     row["Gesamtkosten"] = total_opex
+    row["Personalkosten"] = cost_pers
+    row["Marketingkosten"] = cost_mkt
+    row["Sonstige OPEX"] = cost_opex_fix + cost_consulting + cost_cogs + cost_setup
     
     # EBITDA
     ebitda = net_rev - total_opex
@@ -241,6 +292,7 @@ for t in range(1, 11):
     tax = max(0, ebt * tax_rate)
     net_income = ebt - tax # Jahresüberschuss
     
+    row["Abschreibungen"] = depreciation
     row["EBITDA"] = ebitda
     row["EBIT"] = ebit
     row["Jahresüberschuss"] = net_income
@@ -361,12 +413,40 @@ with tab_dash:
     c_chart1, c_chart2 = st.columns(2)
     with c_chart1:
         st.subheader("Umsatz- & Gewinnentwicklung")
-        # Hier gab es den Fehler: "Gesamtkosten" ist jetzt definiert.
         st.line_chart(df.set_index("Jahr")[["Umsatz", "Gesamtkosten", "EBITDA"]])
         
     with c_chart2:
         st.subheader("Liquidität (Kassenbestand)")
         st.area_chart(df.set_index("Jahr")["Kasse"], color="#85bb65")
+        
+    # --- OUTPUT DOWNLOAD BUTTON (CSV IM PDF FORMAT) ---
+    st.markdown("---")
+    st.subheader("📥 Bericht exportieren")
+    
+    # Wir transponieren das DataFrame (Zeilen <-> Spalten) damit Jahre oben stehen
+    # Wir wählen die wichtigsten Spalten aus, um es übersichtlich zu halten
+    export_cols = [
+        "Kunden", "FTE Total", 
+        "Umsatz", "Personalkosten", "Marketingkosten", "Sonstige OPEX", "EBITDA", 
+        "Abschreibungen", "EBIT", "Zinsaufwand", "Steuern", "Jahresüberschuss",
+        "Kasse", "Forderungen", "Anlagevermögen", "Summe Aktiva",
+        "Verb. LL", "Bankdarlehen", "Eigenkapital", "Summe Passiva"
+    ]
+    
+    # Filtern und Transponieren
+    df_export = df.set_index("Jahr")[export_cols].transpose()
+    
+    # CSV konvertieren
+    csv_export = df_export.to_csv(sep=";").encode("utf-8")
+    
+    st.download_button(
+        label="📊 Vollständigen Bericht herunterladen (CSV, Jahre als Spalten)",
+        data=csv_export,
+        file_name="finanzplan_bericht.csv",
+        mime="text/csv",
+        help="Das Format entspricht der PDF-Struktur (Jahre horizontal)."
+    )
+
 
 # 2. GuV Tab
 with tab_guv:

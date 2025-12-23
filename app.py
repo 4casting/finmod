@@ -9,8 +9,6 @@ st.set_page_config(page_title="Finanzmodell Pro: Custom Jobs", layout="wide")
 st.title("Integriertes Finanzmodell: Custom Jobs & Ressourcen")
 
 # --- INITIALISIERUNG (STATE) ---
-# Wir definieren die Jobs hier oben, damit der Export-Button (der weiter unten kommt) darauf zugreifen kann.
-
 if "current_jobs_df" not in st.session_state:
     # Standard-Datenstruktur
     default_data = [
@@ -25,8 +23,25 @@ if "current_jobs_df" not in st.session_state:
 
 # --- HILFSFUNKTIONEN ---
 
+def safe_float(value, default=0.0):
+    """Konvertiert Input sicher in Float, fängt None/NaN ab."""
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str) and not value.strip():
+            return default
+        if pd.isna(value): # Fängt numpy.nan ab
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
 def calculate_loan_schedule(principal, rate, years):
     """Berechnet einen Tilgungsplan für ein Annuitätendarlehen."""
+    principal = safe_float(principal)
+    rate = safe_float(rate)
+    years = safe_float(years)
+    
     if principal <= 0 or years <= 0:
         return pd.DataFrame()
     
@@ -70,12 +85,12 @@ with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=False):
     
     with col_io1:
         st.markdown("### Inputs exportieren")
-        # 1. Einfache Werte
         config_data = {key: st.session_state.get(key) for key in simple_input_keys if key in st.session_state}
         
-        # 2. Job Daten (KORRIGIERT: Zugriff auf das DataFrame im State, nicht den Editor-Key)
         if "current_jobs_df" in st.session_state:
-             config_data["jobs_data"] = st.session_state["current_jobs_df"].to_dict(orient="records")
+             # DataFrame sicher in Liste von Dicts umwandeln
+             df_export = st.session_state["current_jobs_df"].replace({np.nan: None})
+             config_data["jobs_data"] = df_export.to_dict(orient="records")
 
         json_string = json.dumps(config_data, indent=2)
         
@@ -92,12 +107,10 @@ with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=False):
         if uploaded_file is not None:
             try:
                 data = json.load(uploaded_file)
-                # Einfache Werte laden
                 for key, value in data.items():
                     if key in simple_input_keys:
                         st.session_state[key] = value
                 
-                # Job Daten laden
                 if "jobs_data" in data:
                     st.session_state["current_jobs_df"] = pd.DataFrame(data["jobs_data"])
                 
@@ -170,14 +183,12 @@ with tab_res:
         st.subheader("Definition der Jobs (Jahr 1)")
         st.markdown("Definieren Sie hier Ihre Rollen. Das Modell skaliert die Anzahl in Zukunft basierend auf dem Umsatzwachstum.")
         
-        # Daten aus State laden (wurde oben initialisiert)
         df_for_editor = st.session_state["current_jobs_df"]
         
-        # Editable Dataframe
         edited_jobs = st.data_editor(
             df_for_editor,
             num_rows="dynamic",
-            key="job_editor_widget", # Eigener Key für das Widget
+            key="job_editor_widget",
             column_config={
                 "Job Titel": st.column_config.TextColumn("Rolle / Titel", required=True),
                 "Jahresgehalt (€)": st.column_config.NumberColumn("Jahresgehalt (Brutto)", min_value=0, format="%d €"),
@@ -186,17 +197,26 @@ with tab_res:
             },
             hide_index=True
         )
-        # KORREKTUR: Das Ergebnis des Editors zurück in den State speichern für den nächsten Run/Export
         st.session_state["current_jobs_df"] = edited_jobs
 
 # --- BERECHNUNGS-LOGIK ---
 
-# 1. Parsing der Job-Daten
 jobs_config = edited_jobs.to_dict(orient="records")
 
-# Initialkosten pro Rolle berechnen
+# Safety-Check: Leere Zeilen rausfiltern & Werte säubern
+valid_jobs = []
 for job in jobs_config:
-    setup_cost = job.get("Sonstiges (€)", 0)
+    # Mindestens ein Job Titel muss da sein, sonst ignorieren
+    if job.get("Job Titel") and str(job.get("Job Titel")).strip() != "":
+        # Bereinigte Werte speichern
+        job["FTE Jahr 1"] = safe_float(job.get("FTE Jahr 1"))
+        job["Jahresgehalt (€)"] = safe_float(job.get("Jahresgehalt (€)"))
+        job["Sonstiges (€)"] = safe_float(job.get("Sonstiges (€)"))
+        valid_jobs.append(job)
+
+# Initialkosten pro Rolle berechnen
+for job in valid_jobs:
+    setup_cost = job["Sonstiges (€)"]
     if job.get("Laptop", False): setup_cost += p_laptop
     if job.get("Smartphone", False): setup_cost += p_phone
     if job.get("Auto", False): setup_cost += p_car
@@ -204,8 +224,9 @@ for job in jobs_config:
     if job.get("Büro", False): setup_cost += p_desk
     job["_setup_cost_per_head"] = setup_cost
 
-# 2. Basis-Metriken Jahr 1
-total_fte_y1 = sum(j["FTE Jahr 1"] for j in jobs_config)
+# Basis-Metriken Jahr 1
+total_fte_y1 = sum(j["FTE Jahr 1"] for j in valid_jobs)
+
 # Umsatz Jahr 1
 P_bass = st.session_state.get("p_pct", 2.5) / 100.0
 Q_bass = st.session_state.get("q_pct", 38.0) / 100.0
@@ -213,7 +234,6 @@ CHURN = st.session_state.get("churn", 10.0) / 100.0
 N_start = 10.0 
 revenue_y1 = N_start * ARPU * (1 - discount_total/100)
 
-# SKALIERUNGS-FAKTOR
 if total_fte_y1 > 0:
     revenue_per_fte_benchmark = revenue_y1 / total_fte_y1
 else:
@@ -226,7 +246,7 @@ loan_map = loan_df.set_index("Jahr_Index").to_dict("index") if not loan_df.empty
 # --- SIMULATION ---
 results = []
 n_prev = N_start
-prev_ftes_by_role = {j["Job Titel"]: j["FTE Jahr 1"] for j in jobs_config}
+prev_ftes_by_role = {j["Job Titel"]: j["FTE Jahr 1"] for j in valid_jobs}
 
 cash = 0.0
 fixed_assets = 0.0
@@ -265,7 +285,7 @@ for t in range(1, 11):
     
     current_ftes_by_role = {}
     
-    for job in jobs_config:
+    for job in valid_jobs:
         role_name = job["Job Titel"]
         base_fte = job["FTE Jahr 1"]
         base_salary = job["Jahresgehalt (€)"]
@@ -281,6 +301,7 @@ for t in range(1, 11):
         total_fte_this_year += curr_fte
         row[f"FTE {role_name}"] = curr_fte
         
+        # HIER WAR DER FEHLER: Wir nutzen jetzt die bereinigten Werte (safe_float)
         salaries = base_salary * curr_fte * wage_factor * (1 + lnk_pct)
         daily_personnel_cost += salaries
         

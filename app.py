@@ -1,85 +1,123 @@
 import streamlit as st
 import pandas as pd
+import math
 
 # --- Konfiguration ---
-st.set_page_config(page_title="Finanzmodell Pro", layout="wide")
-st.title("Finanzmodell: Umsatz, Personal & Kosten (EBITDA)")
+st.set_page_config(page_title="Finanzmodell: Inputs & Hierarchie", layout="wide")
+st.title("Finanzmodell mit dynamischer Personalstruktur")
 
-# --- 1. SIDEBAR: EINGABEN ---
+# Tabs für die Strukturierung
+tab_input, tab_sim, tab_data = st.tabs(["📝 Inputs & Konfiguration", "📊 Simulation & Ergebnisse", "📄 Detail-Daten"])
 
-st.sidebar.header("1. Markt & Wachstum")
-SAM = st.sidebar.number_input("SAM (Gesamtmarkt)", 39000, step=1000)
-CAP_percent = st.sidebar.slider("Marktanteil (CAP) %", 0.0, 10.0, 2.3, 0.1)
-SOM = SAM * (CAP_percent / 100.0)
-st.sidebar.caption(f"Ziel-Markt (SOM): {int(SOM)} Kunden")
+with tab_input:
+    st.header("1. Markt & Wachstum (Bass-Modell)")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        SAM = st.number_input("SAM (Gesamtmarkt)", value=39000, step=1000)
+        CAP_percent = st.number_input("Marktanteil (CAP) %", value=2.3, step=0.1)
+        SOM = SAM * (CAP_percent / 100.0)
+        st.info(f"SOM (Zielkunden): {int(SOM)}")
+    with col2:
+        p_percent = st.number_input("Innovatoren (p) %", value=2.5, step=0.1)
+        q_percent = st.number_input("Imitatoren (q) %", value=38.0, step=1.0)
+    with col3:
+        churn_percent = st.number_input("Churn Rate % (pro Jahr)", value=10.0, step=1.0)
 
-p_percent = st.sidebar.slider("Innovatoren (p) %", 0.0, 10.0, 2.5, 0.1)
-q_percent = st.sidebar.slider("Imitatoren (q) %", 0.0, 100.0, 38.0, 1.0)
-churn_percent = st.sidebar.slider("Churn Rate %", 0.0, 30.0, 10.0, 1.0)
+    st.markdown("---")
+    st.header("2. Finanz-Parameter (Jahr 1)")
+    col_fin1, col_fin2 = st.columns(2)
+    with col_fin1:
+        ARPU = st.number_input("ARPU (€ Umsatz pro Kunde/Jahr)", value=3000, step=100)
+        discount_total = st.slider("Rabatte & Skonto gesamt (%)", 0.0, 20.0, 0.0, 0.5)
+    with col_fin2:
+        cogs_percent = st.slider("COGS / RHB (% vom Umsatz)", 0.0, 80.0, 10.0, 1.0)
+    
+    st.markdown("---")
+    st.header("3. Personal: Startaufstellung (Jahr 1)")
+    st.caption("Geben Sie hier die FTEs für das erste Jahr ein. Das Modell skaliert die operativen Kräfte nach Umsatz und berechnet Führungskräfte nach der 1:5:10 Regel.")
+    
+    col_p1, col_p2, col_p3 = st.columns(3)
+    
+    # Inputs für jede Position einzeln
+    with col_p1:
+        st.subheader("Layer 1: Management")
+        fte_md_y1 = st.number_input("Managing Directors (Y1)", value=0.0, step=0.5, help="Wird in Folgejahren automatisch berechnet (1 je 5 Execs)")
+        
+    with col_p2:
+        st.subheader("Layer 2: Executives")
+        fte_exec_y1 = st.number_input("Executives (Y1)", value=1.0, step=0.5, help="Wird in Folgejahren automatisch berechnet (1 je 10 MA)")
+        
+    with col_p3:
+        st.subheader("Layer 3: Mitarbeiter")
+        fte_field_y1 = st.number_input("Field Service (Y1)", value=0.25, step=0.125)
+        fte_internal_y1 = st.number_input("Internal Sales (Y1)", value=0.5, step=0.125)
+        fte_mark_y1 = st.number_input("Marketing (Y1)", value=0.125, step=0.125)
+        fte_acc_y1 = st.number_input("Accounting (Y1)", value=0.125, step=0.125)
 
-st.sidebar.header("2. Revenue & COGS")
-ARPU = st.sidebar.number_input("ARPU (€/Jahr)", value=3000, step=100)
-cogs_percent = st.sidebar.slider("COGS / RHB (% vom Umsatz)", 0.0, 80.0, 10.0, 5.0, help="Kosten für Wareneinsatz/Hosting etc.")
-discount_total = st.sidebar.slider("Rabatte & Skonto gesamt %", 0.0, 20.0, 0.0, 0.5)
+    # Zusammenfassung Layer 3 für Berechnung
+    fte_layer3_y1_total = fte_field_y1 + fte_internal_y1 + fte_mark_y1 + fte_acc_y1
+    
+    # Verhältnisse innerhalb Layer 3 speichern (für spätere Verteilung)
+    layer3_ratios = {
+        "Field Service": fte_field_y1 / fte_layer3_y1_total if fte_layer3_y1_total > 0 else 0,
+        "Internal Sales": fte_internal_y1 / fte_layer3_y1_total if fte_layer3_y1_total > 0 else 0,
+        "Marketing": fte_mark_y1 / fte_layer3_y1_total if fte_layer3_y1_total > 0 else 0,
+        "Accounting": fte_acc_y1 / fte_layer3_y1_total if fte_layer3_y1_total > 0 else 0
+    }
 
-st.sidebar.header("3. Personal-Parameter")
-wage_increase = st.sidebar.number_input("Jährl. Gehaltserhöhung %", 0.0, 10.0, 1.5, 0.1) / 100.0
-inflation = st.sidebar.number_input("Inflation %", 0.0, 10.0, 2.0, 0.1) / 100.0
-lohnnebenkosten = st.sidebar.slider("Lohnnebenkosten %", 0.0, 50.0, 25.0, 1.0) / 100.0
+    st.markdown("---")
+    st.header("4. Kosten-Variablen (Jahr 1 Basis)")
+    
+    col_c1, col_c2, col_c3 = st.columns(3)
+    with col_c1:
+        st.subheader("Gehälter (Brutto)")
+        h_rate_layer1 = st.number_input("Stundensatz Layer 1 (€)", value=80)
+        h_rate_layer2 = st.number_input("Stundensatz Layer 2 (€)", value=50)
+        h_rate_layer3 = st.number_input("Stundensatz Layer 3 (€)", value=40)
+        lohnnebenkosten = st.number_input("Lohnnebenkosten (%)", value=25.0, step=1.0) / 100.0
+        
+    with col_c2:
+        st.subheader("Steigerungsraten")
+        wage_increase = st.number_input("Lohnsteigerung p.a. (%)", value=1.5, step=0.1) / 100.0
+        inflation = st.number_input("Inflation p.a. (%)", value=2.0, step=0.1) / 100.0
+        
+    with col_c3:
+        st.subheader("OPEX Treiber")
+        marketing_per_cust = st.number_input("Marketing pro Neukunde (CAC) €", value=3590)
+        office_per_fte = st.number_input("Büro/Miete pro FTE (€/Jahr)", value=4044)
+        tech_per_fte = st.number_input("IT/Lizenzen pro FTE (€/Jahr)", value=1011)
+        consulting_pct = st.number_input("Beratung (% vom Umsatz)", value=5.0, step=0.5) / 100.0
+        car_cost = st.number_input("Kfz-Kosten p.a. (Exec/Field) €", value=10000)
 
-st.sidebar.subheader("Stundensätze (Basis Jahr 1)")
-h_rate_layer1 = st.sidebar.number_input("Layer 1 (Mgmt) €/h", value=80)
-h_rate_layer2 = st.sidebar.number_input("Layer 2 (Exec) €/h", value=50)
-h_rate_layer3 = st.sidebar.number_input("Layer 3 (Staff) €/h", value=40)
-
-# Start-FTEs (Jahr 1)
-fte_y1 = {
-    "Managing Director": 0.0,  # Layer 1
-    "Executives": 1.0,         # Layer 2
-    "Field Service": 0.25,     # Layer 3
-    "Internal Sales": 0.5,     # Layer 3
-    "Marketing": 0.125,        # Layer 3
-    "Accounting": 0.125        # Layer 3
-}
-
-# Mapping Rollen zu Gehalts-Layer
-role_layer_map = {
-    "Managing Director": 1,
-    "Executives": 2,
-    "Field Service": 3,
-    "Internal Sales": 3,
-    "Marketing": 3,
-    "Accounting": 3
-}
-
-st.sidebar.header("4. Sonstige Kosten (Treiber)")
-marketing_per_cust = st.sidebar.number_input("Marketingkosten pro Kunde (€)", value=3590, help="Initial hoch (CAC), ggf. anpassen")
-office_per_fte = st.sidebar.number_input("Büro/Miete pro FTE (€)", value=4044)
-tech_per_fte = st.sidebar.number_input("IT/Lizenzen pro FTE (€)", value=1011)
-consulting_pct = st.sidebar.slider("Beratung (Recht/Steuer) % v. Ums.", 0.0, 20.0, 5.0, 0.5) / 100.0
-car_cost_per_relevant_fte = st.sidebar.number_input("Kfz-Kosten p.a. (€)", value=10000, help="Angenommen für Execs & Field Service")
-
-# --- BERECHNUNG ---
+# --- BERECHNUNGS-LOGIK ---
 
 # Konstanten
-HOURS_PER_MONTH = 160
-MONTHS = 12
-N_YEAR_1 = 10.0
 P = p_percent / 100.0
 Q = q_percent / 100.0
 CHURN = churn_percent / 100.0
+HOURS_PER_MONTH = 160
+MONTHS = 12
+N_YEAR_1 = 10.0 # Startwert Kunden (aus PDF fix oder anpassbar?) -> Nehmen wir als gegeben an.
 
-# Initialisierung
-total_fte_y1 = sum(fte_y1.values())
+# Berechnung Basis-Metriken Jahr 1
 revenue_y1 = N_YEAR_1 * ARPU * (1 - discount_total/100)
-target_rev_per_employee = revenue_y1 / total_fte_y1 if total_fte_y1 > 0 else 0
 
+# Produktivität: Wieviel Umsatz "schafft" ein operativer Mitarbeiter (Layer 3) im Jahr 1?
+# Dies ist der Treiber für das Upscaling.
+if fte_layer3_y1_total > 0:
+    revenue_per_layer3_fte = revenue_y1 / fte_layer3_y1_total
+else:
+    revenue_per_layer3_fte = 0
+
+# Simulation starten
 results = []
 n_prev = N_YEAR_1
-employees_prev = total_fte_y1
+layer3_prev = fte_layer3_y1_total
+exec_prev = fte_exec_y1
+md_prev = fte_md_y1
 
-# Lohnfaktor initial (wächst mit Inflation/Erhöhung)
-wage_factor = 1.0 
+# Lohnfaktor
+wage_factor = 1.0
 
 for t in range(1, 11):
     row = {"Jahr": t}
@@ -88,120 +126,125 @@ for t in range(1, 11):
     if t == 1:
         n_t = N_YEAR_1
     else:
-        term_ret = n_prev * (1 - CHURN)
-        # Bass Formel
+        # Bass Logik
         potential = max(0, SOM - n_prev)
         adoption = (P + Q * (n_prev / SOM))
-        n_t = term_ret + (adoption * potential)
+        n_t = n_prev * (1 - CHURN) + (adoption * potential)
     
     row["Kunden"] = n_t
-
+    
     # 2. Umsatz
     gross_rev = n_t * ARPU
     net_rev = gross_rev * (1 - discount_total/100)
     row["Umsatz"] = net_rev
     
-    # 3. Personalbedarf (Headcount)
-    if target_rev_per_employee > 0:
-        req_fte = net_rev / target_rev_per_employee
+    # 3. Personal (Upscaling & Hierarchie)
+    
+    if t == 1:
+        # Im Jahr 1 nehmen wir exakt die Inputs (keine automatische Hierarchie-Korrektur, um User-Input zu ehren)
+        curr_layer3 = fte_layer3_y1_total
+        curr_exec = fte_exec_y1
+        curr_md = fte_md_y1
     else:
-        req_fte = 0
-    
-    # "Ratchet"-Effekt: Keine Entlassungen im Modell
-    curr_fte_total = max(req_fte, employees_prev)
-    row["FTE Total"] = curr_fte_total
-    
-    # FTE Verteilung auf Rollen
-    ftes_by_role = {}
-    for role, val in fte_y1.items():
-        share = val / total_fte_y1 if total_fte_y1 > 0 else 0
-        ftes_by_role[role] = curr_fte_total * share
-        row[f"FTE_{role}"] = ftes_by_role[role]
+        # Schritt A: Operative Mitarbeiter basierend auf Umsatzbedarf
+        if revenue_per_layer3_fte > 0:
+            req_layer3 = net_rev / revenue_per_layer3_fte
+        else:
+            req_layer3 = 0
+        
+        # Ratchet: Keine Entlassungen bei Layer 3
+        curr_layer3 = max(req_layer3, layer3_prev)
+        
+        # Schritt B: Hierarchie-Regeln anwenden
+        # Regel: 10 Mitarbeiter -> 1 Executive (d.h. pro angefangene 10 MA einen Exec)
+        req_exec = math.ceil(curr_layer3 / 10.0)
+        curr_exec = max(req_exec, exec_prev) # Auch hier keine Entlassungen
+        
+        # Regel: 5 Executives -> 1 MD (d.h. pro angefangene 5 Execs einen MD)
+        req_md = math.ceil(curr_exec / 5.0)
+        curr_md = max(req_md, md_prev)
 
-    # 4. KOSTEN BERECHNUNG
+    row["FTE Layer 3"] = curr_layer3
+    row["FTE Exec"] = curr_exec
+    row["FTE MD"] = curr_md
+    row["FTE Total"] = curr_layer3 + curr_exec + curr_md
     
-    # A) Personalkosten
-    # Formel: FTE * Rate * Stunden * 12 * (1+LNK) * Wachstumsfaktor
+    # Aufteilung Layer 3 Rollen (gemäß Verteilung Jahr 1)
+    row["FTE Field Service"] = curr_layer3 * layer3_ratios["Field Service"]
+    row["FTE Internal Sales"] = curr_layer3 * layer3_ratios["Internal Sales"]
+    row["FTE Marketing"] = curr_layer3 * layer3_ratios["Marketing"]
+    row["FTE Accounting"] = curr_layer3 * layer3_ratios["Accounting"]
     
-    # Faktor update für dieses Jahr (kumulativ)
+    # 4. Kosten
+    
+    # Lohninflation
     if t > 1:
         wage_factor *= (1 + wage_increase) * (1 + inflation)
+        
+    # Personalkosten berechnen
+    cost_layer1 = curr_md * h_rate_layer1 * HOURS_PER_MONTH * MONTHS * wage_factor * (1 + lohnnebenkosten)
+    cost_layer2 = curr_exec * h_rate_layer2 * HOURS_PER_MONTH * MONTHS * wage_factor * (1 + lohnnebenkosten)
+    cost_layer3 = curr_layer3 * h_rate_layer3 * HOURS_PER_MONTH * MONTHS * wage_factor * (1 + lohnnebenkosten)
     
-    personnel_cost_total = 0
-    for role, count in ftes_by_role.items():
-        layer = role_layer_map[role]
-        if layer == 1: base_h = h_rate_layer1
-        elif layer == 2: base_h = h_rate_layer2
-        else: base_h = h_rate_layer3
-        
-        # Jahresgehalt pro Kopf (Brutto + LNK)
-        yearly_cost_per_head = base_h * HOURS_PER_MONTH * MONTHS * wage_factor * (1 + lohnnebenkosten)
-        
-        role_cost = count * yearly_cost_per_head
-        personnel_cost_total += role_cost
-        
-    row["Personalkosten"] = personnel_cost_total
+    total_personnel = cost_layer1 + cost_layer2 + cost_layer3
+    row["Personalkosten"] = total_personnel
     
-    # B) Sonstige Kosten (OPEX)
-    # Marketing (getrieben durch Kundenanzahl)
-    # Hinweis: Im PDF war Y1 Marketing extrem hoch pro Kunde. Wir nehmen hier den Input-Wert.
+    # OPEX
     cost_marketing = n_t * marketing_per_cust
-    
-    # Büro & IT (getrieben durch FTEs)
-    cost_office = curr_fte_total * office_per_fte
-    cost_tech = curr_fte_total * tech_per_fte
-    
-    # Beratung (getrieben durch Umsatz)
+    cost_office = row["FTE Total"] * office_per_fte
+    cost_tech = row["FTE Total"] * tech_per_fte
     cost_consulting = net_rev * consulting_pct
     
-    # Fahrzeuge (nur für Execs und Field Service)
-    relevant_car_ftes = ftes_by_role["Executives"] + ftes_by_role["Field Service"]
-    cost_cars = relevant_car_ftes * car_cost_per_relevant_fte
+    # KFZ Kosten (Nur Execs und Field Service)
+    relevant_cars = curr_exec + row["FTE Field Service"]
+    cost_cars = relevant_cars * car_cost
     
-    # Sonstiges / Website (Pauschale Annahme oder Wartung)
-    cost_misc = 3000 if t > 1 else 13000 # Beispiel aus PDF (Webseite)
-    
-    # COGS / RHB
+    # COGS
     cost_cogs = net_rev * (cogs_percent / 100.0)
     
-    opex_total = cost_marketing + cost_office + cost_tech + cost_consulting + cost_cars + cost_misc
-    total_costs = personnel_cost_total + opex_total + cost_cogs
+    # Sonstiges (Pauschale für Webseite etc.)
+    cost_misc = 13000 if t == 1 else 3000
+    
+    total_opex = cost_marketing + cost_office + cost_tech + cost_consulting + cost_cars + cost_misc
+    total_costs = total_personnel + total_opex + cost_cogs
     
     row["COGS"] = cost_cogs
-    row["OPEX (Andere)"] = opex_total
+    row["OPEX"] = total_opex
     row["Gesamtkosten"] = total_costs
+    row["EBITDA"] = net_rev - total_costs
     
-    # 5. EBITDA
-    ebitda = net_rev - total_costs
-    row["EBITDA"] = ebitda
-    row["Marge %"] = (ebitda / net_rev * 100) if net_rev > 0 else 0
-
-    # State update
+    # State Updates
     n_prev = n_t
-    employees_prev = curr_fte_total
+    layer3_prev = curr_layer3
+    exec_prev = curr_exec
+    md_prev = curr_md
+    
     results.append(row)
 
 df = pd.DataFrame(results)
 
-# --- ANZEIGE ---
+# --- OUTPUT TABS ---
 
-# KPI Karten
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Umsatz (Jahr 10)", f"€ {df['Umsatz'].iloc[-1]:,.0f}")
-col2.metric("EBITDA (Jahr 10)", f"€ {df['EBITDA'].iloc[-1]:,.0f}", delta=f"{df['Marge %'].iloc[-1]:.1f}% Marge")
-col3.metric("FTEs (Jahr 10)", f"{df['FTE Total'].iloc[-1]:.1f}")
-col4.metric("Personalkosten (Jahr 10)", f"€ {df['Personalkosten'].iloc[-1]:,.0f}")
-
-# Tabs
-tab1, tab2 = st.tabs(["📊 Analyse & Charts", "📄 Daten-Details"])
-
-with tab1:
-    st.subheader("Umsatz vs. Kosten vs. EBITDA")
-    st.line_chart(df.set_index("Jahr")[["Umsatz", "Gesamtkosten", "EBITDA"]])
+with tab_sim:
+    st.subheader("Simulations-Ergebnisse")
     
-    st.subheader("Kostenstruktur (Stacked)")
-    st.bar_chart(df.set_index("Jahr")[["Personalkosten", "OPEX (Andere)", "COGS"]])
+    # KPI Zeile
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi1.metric("Umsatz J10", f"€ {df['Umsatz'].iloc[-1]:,.0f}")
+    kpi2.metric("EBITDA J10", f"€ {df['EBITDA'].iloc[-1]:,.0f}")
+    kpi3.metric("FTE Total J10", f"{df['FTE Total'].iloc[-1]:.1f}")
+    kpi4.metric("Kunden J10", f"{df['Kunden'].iloc[-1]:.0f}")
 
-with tab2:
+    st.markdown("### Personalentwicklung nach Hierarchie")
+    st.caption("Das Diagramm zeigt, wie Executives und MDs basierend auf der Anzahl der Mitarbeiter (Layer 3) stufenweise ansteigen.")
+    st.bar_chart(df.set_index("Jahr")[["FTE Layer 3", "FTE Exec", "FTE MD"]])
+    
+    st.markdown("### Finanzübersicht")
+    st.line_chart(df.set_index("Jahr")[["Umsatz", "Gesamtkosten", "EBITDA"]])
+
+with tab_data:
+    st.subheader("Detaillierte Datentabelle")
     st.dataframe(df.style.format("{:,.0f}"))
-    st.download_button("Excel/CSV Export", df.to_csv(index=False), "planungsrechnung.csv")
+    
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("Daten als CSV herunterladen", csv, "finanzplan.csv", "text/csv")

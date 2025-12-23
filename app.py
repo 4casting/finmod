@@ -30,7 +30,7 @@ def safe_float(value, default=0.0):
             return default
         if isinstance(value, str) and not value.strip():
             return default
-        if pd.isna(value): # Fängt numpy.nan ab
+        if pd.isna(value): 
             return default
         return float(value)
     except (ValueError, TypeError):
@@ -88,7 +88,7 @@ with st.expander("📂 Szenario Manager (Speichern & Laden)", expanded=False):
         config_data = {key: st.session_state.get(key) for key in simple_input_keys if key in st.session_state}
         
         if "current_jobs_df" in st.session_state:
-             # DataFrame sicher in Liste von Dicts umwandeln
+             # DataFrame sicher in Liste von Dicts umwandeln, NaN zu None
              df_export = st.session_state["current_jobs_df"].replace({np.nan: None})
              config_data["jobs_data"] = df_export.to_dict(orient="records")
 
@@ -185,15 +185,21 @@ with tab_res:
         
         df_for_editor = st.session_state["current_jobs_df"]
         
+        # HIER IST DER FIX: Explizite Definition aller Spalten inkl. Checkboxen und Default-Werte
         edited_jobs = st.data_editor(
             df_for_editor,
             num_rows="dynamic",
             key="job_editor_widget",
             column_config={
                 "Job Titel": st.column_config.TextColumn("Rolle / Titel", required=True),
-                "Jahresgehalt (€)": st.column_config.NumberColumn("Jahresgehalt (Brutto)", min_value=0, format="%d €"),
-                "FTE Jahr 1": st.column_config.NumberColumn("FTEs (Start)", min_value=0.0, step=0.1, format="%.1f"),
-                "Sonstiges (€)": st.column_config.NumberColumn("Sonstiges (Setup)", min_value=0, format="%d €"),
+                "Jahresgehalt (€)": st.column_config.NumberColumn("Jahresgehalt (Brutto)", min_value=0, default=0, required=True, format="%d €"),
+                "FTE Jahr 1": st.column_config.NumberColumn("FTEs (Start)", min_value=0.0, default=0.0, step=0.1, format="%.1f"),
+                "Sonstiges (€)": st.column_config.NumberColumn("Sonstiges (Setup)", min_value=0, default=0, format="%d €"),
+                "Laptop": st.column_config.CheckboxColumn("Laptop?", default=False),
+                "Smartphone": st.column_config.CheckboxColumn("Handy?", default=False),
+                "Auto": st.column_config.CheckboxColumn("Auto?", default=False),
+                "LKW": st.column_config.CheckboxColumn("LKW?", default=False),
+                "Büro": st.column_config.CheckboxColumn("Büro?", default=False),
             },
             hide_index=True
         )
@@ -206,22 +212,30 @@ jobs_config = edited_jobs.to_dict(orient="records")
 # Safety-Check: Leere Zeilen rausfiltern & Werte säubern
 valid_jobs = []
 for job in jobs_config:
-    # Mindestens ein Job Titel muss da sein, sonst ignorieren
+    # Nur Zeilen mit Titel berücksichtigen
     if job.get("Job Titel") and str(job.get("Job Titel")).strip() != "":
-        # Bereinigte Werte speichern
+        # Werte säubern (safe_float)
         job["FTE Jahr 1"] = safe_float(job.get("FTE Jahr 1"))
         job["Jahresgehalt (€)"] = safe_float(job.get("Jahresgehalt (€)"))
         job["Sonstiges (€)"] = safe_float(job.get("Sonstiges (€)"))
+        
+        # Checkboxen sicherstellen (True/False statt None)
+        job["Laptop"] = bool(job.get("Laptop"))
+        job["Smartphone"] = bool(job.get("Smartphone"))
+        job["Auto"] = bool(job.get("Auto"))
+        job["LKW"] = bool(job.get("LKW"))
+        job["Büro"] = bool(job.get("Büro"))
+        
         valid_jobs.append(job)
 
 # Initialkosten pro Rolle berechnen
 for job in valid_jobs:
     setup_cost = job["Sonstiges (€)"]
-    if job.get("Laptop", False): setup_cost += p_laptop
-    if job.get("Smartphone", False): setup_cost += p_phone
-    if job.get("Auto", False): setup_cost += p_car
-    if job.get("LKW", False): setup_cost += p_truck
-    if job.get("Büro", False): setup_cost += p_desk
+    if job["Laptop"]: setup_cost += p_laptop
+    if job["Smartphone"]: setup_cost += p_phone
+    if job["Auto"]: setup_cost += p_car
+    if job["LKW"]: setup_cost += p_truck
+    if job["Büro"]: setup_cost += p_desk
     job["_setup_cost_per_head"] = setup_cost
 
 # Basis-Metriken Jahr 1
@@ -301,7 +315,6 @@ for t in range(1, 11):
         total_fte_this_year += curr_fte
         row[f"FTE {role_name}"] = curr_fte
         
-        # HIER WAR DER FEHLER: Wir nutzen jetzt die bereinigten Werte (safe_float)
         salaries = base_salary * curr_fte * wage_factor * (1 + lnk_pct)
         daily_personnel_cost += salaries
         

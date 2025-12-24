@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import math
 import json
 import numpy as np
 from fpdf import FPDF
@@ -10,7 +9,6 @@ from datetime import datetime
 
 # --- LOGIN FUNKTION ---
 def check_password():
-    """Gibt True zurück, wenn das Passwort korrekt ist."""
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
 
@@ -40,10 +38,10 @@ if st.sidebar.button("Abmelden"):
 
 st.set_page_config(page_title="Finanzmodell Pro", layout="wide")
 
-# --- 1. DEFINITION DER STANDARDS (ZENTRAL) ---
+# --- 1. DEFINITION DER STANDARDS ---
 DEFAULTS = {
     # Markt & Wachstum
-    "sam": 39000.0, "cap_pct": 2.3, "p_pct": 2.5, "q_pct": 38.0, "churn": 10.0, "arpu": 3000.0, "discount": 0.0,
+    "sam": 39000.0, "cap_pct": 2.3, "p_pct": 2.5, "q_pct": 38.0, "churn": 10.0, "discount": 0.0,
     # Finanzierung
     "equity": 100000.0, "loan_initial": 0.0, "min_cash": 100000.0, "loan_rate": 5.0,
     # Personal Global
@@ -55,13 +53,20 @@ DEFAULTS = {
     # Assets NUTZUNGSDAUER (Jahre)
     "ul_desk": 13, "ul_laptop": 3, "ul_phone": 2, "ul_car": 6, "ul_truck": 8,
     # Sonstiges
-    "capex_annual": 5000, "depreciation_misc": 5
+    "capex_annual": 5000, "depreciation_misc": 5,
+    # Legacy ARPU (wird durch Produkte überschrieben, wenn vorhanden)
+    "manual_arpu": 3000.0
 }
 
 # --- 2. INITIALISIERUNG STATE ---
 for key, default_val in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = default_val
+
+# Helper für Callbacks (Fix für "Doppelte Eingabe")
+def update_df_from_editor(key_name, state_name):
+    """Speichert Daten sofort, wenn der Editor geändert wird."""
+    st.session_state[state_name] = st.session_state[key_name]
 
 # Jobs Tabelle Initialisieren
 if "current_jobs_df" not in st.session_state:
@@ -73,6 +78,7 @@ if "current_jobs_df" not in st.session_state:
         {"Job Titel": "Techniker", "Jahresgehalt (€)": 40000.0, "FTE Jahr 1": 2.0, "Laptop": False, "Smartphone": True, "Auto": False, "LKW": True, "Büro": False, "Sonstiges (€)": 1000.0},
         {"Job Titel": "Buchhaltung", "Jahresgehalt (€)": 42000.0, "FTE Jahr 1": 0.5, "Laptop": True, "Smartphone": False, "Auto": False, "LKW": False, "Büro": True, "Sonstiges (€)": 0.0},
     ]
+    # Auffüllen auf 15 Slots
     for i in range(len(defined_roles) + 1, 16):
         defined_roles.append({
             "Job Titel": f"Position {i} (Platzhalter)", "Jahresgehalt (€)": 0.0, "FTE Jahr 1": 0.0, 
@@ -80,15 +86,29 @@ if "current_jobs_df" not in st.session_state:
         })
     st.session_state["current_jobs_df"] = pd.DataFrame(defined_roles)
 
-# Kostenstellen Tabelle Initialisieren (NEU)
+# Kostenstellen Tabelle Initialisieren
 if "cost_centers_df" not in st.session_state:
     st.session_state["cost_centers_df"] = pd.DataFrame([
         {"Kostenstelle": "Büromaterial", "Grundwert Jahr 1 (€)": 1200, "Umsatz-Kopplung (%)": 20},
         {"Kostenstelle": "Reisekosten", "Grundwert Jahr 1 (€)": 5000, "Umsatz-Kopplung (%)": 80},
-        {"Kostenstelle": "IT-Infrastruktur / Server", "Grundwert Jahr 1 (€)": 2400, "Umsatz-Kopplung (%)": 40},
+        {"Kostenstelle": "IT-Infrastruktur", "Grundwert Jahr 1 (€)": 2400, "Umsatz-Kopplung (%)": 40},
         {"Kostenstelle": "Rechtsberatung", "Grundwert Jahr 1 (€)": 1500, "Umsatz-Kopplung (%)": 10},
         {"Kostenstelle": "Versicherungen", "Grundwert Jahr 1 (€)": 3000, "Umsatz-Kopplung (%)": 0},
     ])
+
+# PRODUKTE Tabelle Initialisieren (NEU)
+if "products_df" not in st.session_state:
+    products_init = [
+        {"Produkt": "Standard Abo", "Preis (€)": 100.0, "Avg. Rabatt (%)": 0.0, "Herstellungskosten (COGS €)": 10.0, "Take Rate (%)": 80.0, "Wiederkauf Rate (%)": 90.0, "Wiederkauf alle (Monate)": 12},
+        {"Produkt": "Premium Add-On", "Preis (€)": 500.0, "Avg. Rabatt (%)": 5.0, "Herstellungskosten (COGS €)": 50.0, "Take Rate (%)": 20.0, "Wiederkauf Rate (%)": 50.0, "Wiederkauf alle (Monate)": 24},
+        {"Produkt": "Setup Gebühr", "Preis (€)": 1000.0, "Avg. Rabatt (%)": 0.0, "Herstellungskosten (COGS €)": 200.0, "Take Rate (%)": 100.0, "Wiederkauf Rate (%)": 0.0, "Wiederkauf alle (Monate)": 0},
+    ]
+    # Auffüllen auf 10 Slots
+    for i in range(len(products_init) + 1, 11):
+        products_init.append({
+            "Produkt": f"Produkt {i}", "Preis (€)": 0.0, "Avg. Rabatt (%)": 0.0, "Herstellungskosten (COGS €)": 0.0, "Take Rate (%)": 0.0, "Wiederkauf Rate (%)": 0.0, "Wiederkauf alle (Monate)": 0
+        })
+    st.session_state["products_df"] = pd.DataFrame(products_init)
 
 # --- HILFSFUNKTIONEN ---
 def safe_float(value, default=0.0):
@@ -101,7 +121,7 @@ def safe_float(value, default=0.0):
 class PDFReport(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 15)
-        self.cell(0, 10, 'Integrierter Finanzplan & Business Case', 0, 1, 'C')
+        self.cell(0, 10, 'Integrierter Finanzplan', 0, 1, 'C')
         self.set_font('Arial', 'I', 8)
         self.cell(0, 5, f'Erstellt am: {datetime.now().strftime("%d.%m.%Y")}', 0, 1, 'C')
         self.ln(10)
@@ -139,7 +159,6 @@ def create_pdf(df_results, inputs, jobs_df):
     pdf.alias_nb_pages()
     pdf.add_page()
     
-    # 1. Management Summary
     pdf.chapter_title("Management Summary (Jahr 10)")
     pdf.set_font('Arial', '', 10)
     if not df_results.empty:
@@ -149,20 +168,17 @@ def create_pdf(df_results, inputs, jobs_df):
         pdf.cell(60, 10, f"Cash: {kpi.get('Kasse',0):,.0f} EUR", 0, 1)
     pdf.ln(5)
 
-    # 2. GuV
     cols = ["Umsatz", "Gesamtkosten (OPEX)", "EBITDA", "Abschreibungen", "EBIT", "Zinsaufwand", "Steuern", "Jahresüberschuss"]
     existing_cols = [c for c in cols if c in df_results.columns]
     if existing_cols:
         pdf.add_table(df_results.set_index("Jahr")[existing_cols].T, "Gewinn- und Verlustrechnung (GuV)")
 
-    # 3. Cashflow
     pdf.add_page()
     cf_cols = ["Jahresüberschuss", "Abschreibungen", "Investitionen (Assets)", "Kreditaufnahme", "Tilgung", "Net Cash Change", "Kasse"]
     existing_cf = [c for c in cf_cols if c in df_results.columns]
     if existing_cf:
         pdf.add_table(df_results.set_index("Jahr")[existing_cf].T, "Kapitalflussrechnung")
 
-    # 4. Bilanz
     pdf.add_page()
     pdf.chapter_title("Bilanz")
     aktiva_cols = ["Anlagevermögen", "Kasse", "Forderungen", "Summe Aktiva"]
@@ -179,7 +195,6 @@ def create_pdf(df_results, inputs, jobs_df):
         pdf.cell(0, 10, "Passiva (Mittelherkunft)", 0, 1)
         pdf.add_table(df_results.set_index("Jahr")[existing_pass].T)
 
-    # 5. Charts
     pdf.add_page()
     pdf.chapter_title("Finanzielle Entwicklung")
     if not df_results.empty:
@@ -201,7 +216,7 @@ with col_main_act1:
     if st.button("🔄 MODELL JETZT NEU BERECHNEN", type="primary", use_container_width=True):
         st.rerun()
 with col_main_act2:
-    st.info("💡 Klicken Sie links, um nach Änderungen die Berechnung zu aktualisieren.")
+    st.info("💡 Änderungen in den Tabellen werden nun sofort übernommen.")
 
 # --- SZENARIO MANAGER ---
 with st.expander("📂 Datei Speichern & Laden (Import/Export)", expanded=True):
@@ -216,6 +231,8 @@ with st.expander("📂 Datei Speichern & Laden (Import/Export)", expanded=True):
              config_data["jobs_data"] = df_export.to_dict(orient="records")
         if "cost_centers_df" in st.session_state:
              config_data["cost_centers_data"] = st.session_state["cost_centers_df"].to_dict(orient="records")
+        if "products_df" in st.session_state:
+             config_data["products_data"] = st.session_state["products_df"].to_dict(orient="records")
         
         st.download_button("💾 Als JSON herunterladen", json.dumps(config_data, indent=2), "finanzmodell_config.json", "application/json")
 
@@ -232,21 +249,22 @@ with st.expander("📂 Datei Speichern & Laden (Import/Export)", expanded=True):
                         if key in DEFAULTS: st.session_state[key] = val
                     if "jobs_data" in data:
                         st.session_state["current_jobs_df"] = pd.DataFrame(data["jobs_data"])
-                        if "job_editor_widget" in st.session_state: del st.session_state["job_editor_widget"]
                     if "cost_centers_data" in data:
                          st.session_state["cost_centers_df"] = pd.DataFrame(data["cost_centers_data"])
-                         if "cc_editor_widget" in st.session_state: del st.session_state["cc_editor_widget"]
+                    if "products_data" in data:
+                         st.session_state["products_df"] = pd.DataFrame(data["products_data"])
                     
                     st.toast("Import erfolgreich!", icon="✅")
                     st.rerun()
                 except Exception as e: st.error(f"Fehler: {e}")
 
 # --- TABS ---
-tab_input, tab_assets, tab_jobs, tab_costs, tab_dash, tab_guv, tab_cf, tab_bilanz = st.tabs([
+tab_input, tab_products, tab_assets, tab_jobs, tab_costs, tab_dash, tab_guv, tab_cf, tab_bilanz = st.tabs([
     "📝 Markt & Finanzen", 
+    "📦 Produkte", # NEU
     "📉 Abschreibungen & Assets", 
     "👥 Personal & Jobs", 
-    "🏢 Kostenstellen", # NEUER TAB
+    "🏢 Kostenstellen", 
     "📊 Dashboard", 
     "📑 GuV", 
     "💰 Cashflow", 
@@ -265,9 +283,9 @@ with tab_input:
         st.number_input("Innovatoren (p) %", step=0.1, key="p_pct")
         st.number_input("Imitatoren (q) %", step=1.0, key="q_pct")
         st.number_input("Churn Rate %", step=1.0, key="churn")
-        st.subheader("Umsatz")
-        st.number_input("ARPU (€)", step=100.0, key="arpu")
-        st.slider("Rabatte %", 0.0, 20.0, key="discount")
+        st.subheader("Umsatz Basis")
+        st.caption("Hinweis: Wenn Produkte im Reiter 'Produkte' definiert sind, wird der ARPU automatisch berechnet.")
+        st.number_input("Manueller ARPU (€) (Fallback)", step=100.0, key="manual_arpu")
 
     with col2:
         st.subheader("2. Finanzierung")
@@ -285,11 +303,34 @@ with tab_input:
         st.number_input("Steuersatz %", key="tax_rate")
         st.number_input("Marketing CAC (€)", key="cac")
 
+# --- TAB: PRODUKTE (NEU) ---
+with tab_products:
+    st.header("Produktkalkulation & Unit Economics")
+    st.info("Definiere hier deine Produkte. Diese Werte ersetzen den manuellen ARPU. 'Wiederkauf alle X Monate' steuert die Häufigkeit pro Jahr.")
+    
+    # Editor mit on_change Handler für Sofort-Update
+    edited_products = st.data_editor(
+        st.session_state["products_df"],
+        num_rows="fixed",
+        use_container_width=True,
+        key="prod_editor_widget",
+        on_change=update_df_from_editor,
+        args=("prod_editor_widget", "products_df"),
+        column_config={
+            "Produkt": st.column_config.TextColumn("Produkt Name", required=True),
+            "Preis (€)": st.column_config.NumberColumn("Preis (Netto)", min_value=0.0, format="%.2f €"),
+            "Avg. Rabatt (%)": st.column_config.NumberColumn("Ø Rabatt", min_value=0.0, max_value=100.0, format="%.1f %%"),
+            "Herstellungskosten (COGS €)": st.column_config.NumberColumn("COGS (EK/Prod)", min_value=0.0, format="%.2f €"),
+            "Take Rate (%)": st.column_config.NumberColumn("Take Rate (Kunden %)", min_value=0.0, max_value=100.0, help="Wieviel % aller aktiven Kunden kaufen dieses Produkt?"),
+            "Wiederkauf Rate (%)": st.column_config.NumberColumn("Wiederkauf Quote", min_value=0.0, max_value=100.0),
+            "Wiederkauf alle (Monate)": st.column_config.NumberColumn("Zyklus (Monate)", min_value=0, help="0 = Einmalkauf. 12 = 1x jährlich. 1 = Monatlich."),
+        }
+    )
+
 # --- TAB 2: ABSCHREIBUNGEN ---
 with tab_assets:
     st.header("Asset Management & AfA")
     col_a1, col_a2, col_a3 = st.columns(3)
-    
     with col_a1:
         st.subheader("IT & Kommunikation")
         st.number_input("Laptop Preis (€)", key="price_laptop")
@@ -297,7 +338,6 @@ with tab_assets:
         st.markdown("---")
         st.number_input("Handy Preis (€)", key="price_phone")
         st.number_input("Handy Dauer (Jahre)", key="ul_phone", min_value=1)
-        
     with col_a2:
         st.subheader("Mobilität")
         st.number_input("PKW Preis (€)", key="price_car")
@@ -305,7 +345,6 @@ with tab_assets:
         st.markdown("---")
         st.number_input("LKW Preis (€)", key="price_truck")
         st.number_input("LKW Dauer (Jahre)", key="ul_truck", min_value=1)
-
     with col_a3:
         st.subheader("Sonstiges")
         st.number_input("Büroplatz Preis (€)", key="price_desk")
@@ -322,15 +361,15 @@ with tab_jobs:
         st.number_input("Ziel-Umsatz je FTE (€/Jahr)", step=5000.0, key="target_rev_per_fte", help="Steuert den Personalbedarf.")
         
     st.subheader("Job Definitionen (15 Slots)")
-    df_edit = st.session_state["current_jobs_df"].copy()
-    for c in ["Jahresgehalt (€)", "FTE Jahr 1", "Sonstiges (€)"]:
-        df_edit[c] = pd.to_numeric(df_edit[c], errors='coerce').fillna(0.0)
-        
+    
+    # Editor mit on_change Handler (Fix für Doppeleingabe)
     edited_jobs = st.data_editor(
-        df_edit,
+        st.session_state["current_jobs_df"],
         num_rows="fixed",
         use_container_width=True,
         key="job_editor_widget",
+        on_change=update_df_from_editor,
+        args=("job_editor_widget", "current_jobs_df"),
         column_config={
             "Job Titel": st.column_config.TextColumn("Job Titel", required=True),
             "Jahresgehalt (€)": st.column_config.NumberColumn("Jahresgehalt", min_value=0, format="%d €"),
@@ -344,20 +383,20 @@ with tab_jobs:
         },
         hide_index=True
     )
-    st.session_state["current_jobs_df"] = edited_jobs
 
-# --- TAB 4: KOSTENSTELLEN (NEU) ---
+# --- TAB 4: KOSTENSTELLEN ---
 with tab_costs:
     st.header("Zusätzliche Kostenstellen & Gemeinkosten")
-    st.info("Tragen Sie hier Kostenstellen ein. Definieren Sie den 'Grundwert Jahr 1' und wie stark diese Kosten mit dem Umsatz steigen sollen (Kopplung %).")
+    st.info("Tragen Sie hier Kostenstellen ein.")
     
-    cc_edit_df = st.session_state["cost_centers_df"].copy()
-    
+    # Editor mit on_change Handler (Fix für Doppeleingabe)
     edited_cc = st.data_editor(
-        cc_edit_df,
+        st.session_state["cost_centers_df"],
         num_rows="dynamic",
         use_container_width=True,
         key="cc_editor_widget",
+        on_change=update_df_from_editor,
+        args=("cc_editor_widget", "cost_centers_df"),
         column_config={
             "Kostenstelle": st.column_config.TextColumn("Bezeichnung", required=True),
             "Grundwert Jahr 1 (€)": st.column_config.NumberColumn("Startwert (Jahr 1)", min_value=0, format="%.2f €"),
@@ -370,12 +409,11 @@ with tab_costs:
             ),
         }
     )
-    st.session_state["cost_centers_df"] = edited_cc
 
 # --- BERECHNUNG ---
 
-# Jobs Parsen
-jobs_config = edited_jobs.to_dict(orient="records")
+# 1. Parsing Input Data
+jobs_config = st.session_state["current_jobs_df"].to_dict(orient="records")
 valid_jobs = []
 for job in jobs_config:
     job["FTE Jahr 1"] = safe_float(job.get("FTE Jahr 1"))
@@ -383,21 +421,64 @@ for job in jobs_config:
     job["Sonstiges (€)"] = safe_float(job.get("Sonstiges (€)"))
     for k in ["Laptop", "Smartphone", "Auto", "LKW", "Büro"]:
         job[k] = bool(job.get(k))
-    
-    setup = job["Sonstiges (€)"] 
-    job["_setup_opex"] = setup
+    job["_setup_opex"] = job["Sonstiges (€)"]
     valid_jobs.append(job)
 
-# Kostenstellen Parsen
-cc_config = edited_cc.to_dict(orient="records")
+cc_config = st.session_state["cost_centers_df"].to_dict(orient="records")
+products_config = st.session_state["products_df"].to_dict(orient="records")
 
-# Konstanten
+# 2. PRODUKT LOGIK: Berechne gemittelten ARPU und COGS Quote
+active_products = []
+weighted_arpu = 0.0
+weighted_cogs = 0.0
+has_products = False
+
+for p in products_config:
+    price = safe_float(p.get("Preis (€)"))
+    if price > 0:
+        has_products = True
+        disc = safe_float(p.get("Avg. Rabatt (%)")) / 100.0
+        cogs_val = safe_float(p.get("Herstellungskosten (COGS €)"))
+        take_rate = safe_float(p.get("Take Rate (%)")) / 100.0
+        repurchase_rate = safe_float(p.get("Wiederkauf Rate (%)")) / 100.0
+        months = safe_float(p.get("Wiederkauf alle (Monate)"))
+        
+        # Frequenz pro Jahr
+        # Einmalkauf (Monate=0) => freq = 1 (im ersten Jahr, statistisch gesehen)
+        # Wenn Zyklus > 0: Freq = 1 + (Repurchase * (12/Monate))
+        # Vereinfachung: "Take Rate" gilt pro Jahr auf die Kundenbasis. 
+        if months <= 0:
+            freq = 1.0 # Einmalig
+        else:
+            # Beispiel: 12 Monate = 1x. 1 Monat = 12x.
+            cycles_per_year = 12.0 / months
+            # Wir nehmen an: 1. Kauf + (Wiederkaufwahrscheinlichkeit * weitere Zyklen)
+            # Das ist eine starke Vereinfachung für ein Jahresmodell
+            freq = 1.0 + (repurchase_rate * (cycles_per_year - 1)) if cycles_per_year >= 1 else 1.0
+            
+        net_price = price * (1 - disc)
+        rev_per_customer = net_price * take_rate * freq
+        cogs_per_customer = cogs_val * take_rate * freq
+        
+        weighted_arpu += rev_per_customer
+        weighted_cogs += cogs_per_customer
+
+# Fallback auf Manuell, wenn keine Produkte definiert
+if not has_products or weighted_arpu == 0:
+    calc_arpu = st.session_state["manual_arpu"]
+    # Standardannahme COGS 10% wenn keine Produkte da sind
+    calc_cogs_ratio = 0.10 
+else:
+    calc_arpu = weighted_arpu
+    # COGS Ratio berechnen für GuV Logik
+    calc_cogs_ratio = weighted_cogs / weighted_arpu if weighted_arpu > 0 else 0.0
+
+# 3. Konstanten
 total_fte_y1 = sum(j["FTE Jahr 1"] for j in valid_jobs)
 P = st.session_state["p_pct"] / 100.0
 Q = st.session_state["q_pct"] / 100.0
 CHURN = st.session_state["churn"] / 100.0
 N_start = 10.0 
-revenue_y1 = N_start * st.session_state["arpu"] * (1 - st.session_state["discount"]/100)
 
 # Asset Register Initialisierung
 asset_types = {
@@ -413,7 +494,10 @@ asset_register = {k: [] for k in asset_types.keys()}
 results = []
 n_prev = N_start
 prev_ftes_by_role = {j["Job Titel"]: j["FTE Jahr 1"] for j in valid_jobs}
-prev_cc_values = {item["Kostenstelle"]: item["Grundwert Jahr 1 (€)"] for item in cc_config} # Startwerte Kostenstellen
+prev_cc_values = {}
+for item in cc_config:
+    nm = item.get("Kostenstelle")
+    if nm: prev_cc_values[nm] = safe_float(item.get("Grundwert Jahr 1 (€)"))
 
 cash = 0.0
 fixed_assets = 0.0
@@ -421,9 +505,9 @@ debt = st.session_state["loan_initial"]
 retained_earnings = 0.0
 wage_factor = 1.0
 debt_prev = st.session_state["loan_initial"]
-
 asset_details_log = []
 
+# --- HAUPT SCHLEIFE (JAHRE) ---
 for t in range(1, 11):
     row = {"Jahr": t}
     
@@ -434,33 +518,30 @@ for t in range(1, 11):
         adopt = (P + Q * (n_prev / SOM))
         n_t = n_prev * (1 - CHURN) + (adopt * pot)
     row["Kunden"] = n_t
-    net_rev = n_t * st.session_state["arpu"] * (1 - st.session_state["discount"]/100)
-    row["Umsatz"] = net_rev
     
-    # Umsatzwachstum berechnen für Kostenstellen
-    rev_prev_val = results[-1]["Umsatz"] if t > 1 else net_rev
-    if t > 1 and rev_prev_val > 0:
-        growth_rate = (net_rev - rev_prev_val) / rev_prev_val
-    else:
-        growth_rate = 0.0
+    # Umsatz berechnen (Produkte oder Manuell)
+    gross_rev = n_t * calc_arpu
+    row["Umsatz"] = gross_rev
+    
+    # Umsatzwachstum für Kostenstellen
+    rev_prev_val = results[-1]["Umsatz"] if t > 1 else gross_rev
+    growth_rate = (gross_rev - rev_prev_val) / rev_prev_val if (t > 1 and rev_prev_val > 0) else 0.0
 
     # 2. Personal & Assets Bedarf
     target_total_fte = 0
     if st.session_state["target_rev_per_fte"] > 0:
-        target_total_fte = net_rev / st.session_state["target_rev_per_fte"]
+        target_total_fte = gross_rev / st.session_state["target_rev_per_fte"]
         
     if t > 1: wage_factor *= (1 + st.session_state["wage_inc"]/100) * (1 + st.session_state["inflation"]/100)
     
     daily_personnel_cost = 0
     setup_opex = 0
     asset_needs = {k: 0.0 for k in asset_types.keys() if k != "Misc"}
-    
     current_ftes_by_role = {}
     
     for job in valid_jobs:
         role = job["Job Titel"]
         base_fte = job["FTE Jahr 1"]
-        
         if t == 1: curr_fte = base_fte
         else:
             if base_fte > 0 and total_fte_y1 > 0:
@@ -475,7 +556,6 @@ for t in range(1, 11):
         
         cost = job["Jahresgehalt (€)"] * curr_fte * wage_factor * (1 + st.session_state["lnk_pct"]/100)
         daily_personnel_cost += cost
-        
         prev = prev_ftes_by_role.get(role, 0) if t > 1 else 0
         delta = max(0, curr_fte - prev)
         setup_opex += delta * job["_setup_opex"]
@@ -489,40 +569,27 @@ for t in range(1, 11):
     row["FTE Total"] = sum(current_ftes_by_role.values())
     row["Personalkosten"] = daily_personnel_cost
     
-    # 3. Asset Kauf & AfA
+    # 3. Assets
     capex_now = 0.0
     depreciation_now = 0.0
-    
-    # Misc
     capex_misc = st.session_state["capex_annual"]
-    asset_register["Misc"].append({
-        "year": t, "amount": 1, "price": capex_misc, "total_cost": capex_misc, "ul": st.session_state["depreciation_misc"]
-    })
+    asset_register["Misc"].append({"year": t, "amount": 1, "price": capex_misc, "total_cost": capex_misc, "ul": st.session_state["depreciation_misc"]})
     capex_now += capex_misc
     
-    # Specific Assets
     for atype, needed in asset_needs.items():
         price = st.session_state[asset_types[atype]["price_key"]]
         ul = st.session_state[asset_types[atype]["ul_key"]]
-        
-        valid = 0
-        for p in asset_register[atype]:
-            if (t - p["year"]) < p["ul"]: valid += p["amount"]
-            
+        valid = sum(p["amount"] for p in asset_register[atype] if (t - p["year"]) < p["ul"])
         buy = max(0, needed - valid)
         if buy > 0:
             cost = buy * price
             capex_now += cost
-            asset_register[atype].append({
-                "year": t, "amount": buy, "price": price, "total_cost": cost, "ul": ul
-            })
+            asset_register[atype].append({"year": t, "amount": buy, "price": price, "total_cost": cost, "ul": ul})
             
-    # AfA
     for atype, purchases in asset_register.items():
         type_depr = 0
         for p in purchases:
-            age = t - p["year"]
-            if 0 <= age < p["ul"]:
+            if 0 <= (t - p["year"]) < p["ul"]:
                 type_depr += p["total_cost"] / p["ul"]
         depreciation_now += type_depr
         asset_details_log.append({"Jahr": t, "Typ": atype, "Invest (€)": sum(p["total_cost"] for p in purchases if p["year"]==t), "AfA (€)": type_depr})
@@ -530,62 +597,37 @@ for t in range(1, 11):
     row["Investitionen (Assets)"] = capex_now
     row["Abschreibungen"] = depreciation_now
     
-# 4. Berechnung der Manuellen Kostenstellen (KORRIGIERT)
+    # 4. Manuelle Kostenstellen
     total_manual_cc_cost = 0.0
-    
     for cc_item in cc_config:
-        # Sicherstellen, dass der Name existiert
         name = cc_item.get("Kostenstelle")
-        if not name: continue # Überspringe Zeilen ohne Namen
-
-        # FIX: safe_float benutzen, falls das Feld leer ist
-        coupling_raw = cc_item.get("Umsatz-Kopplung (%)")
-        coupling = safe_float(coupling_raw) / 100.0
-        
-        # Wert aus Vorjahr (oder Startwert bei t=1)
-        # Fallback auf 0, falls Key fehlt (sollte nicht passieren, aber sicher ist sicher)
+        if not name: continue
+        coupling = safe_float(cc_item.get("Umsatz-Kopplung (%)")) / 100.0
         prev_val = prev_cc_values.get(name, 0.0)
         
         if t == 1:
-            # FIX: Auch hier safe_float für den Startwert benutzen
-            start_val_raw = cc_item.get("Grundwert Jahr 1 (€)")
-            current_val = safe_float(start_val_raw)
+            current_val = safe_float(cc_item.get("Grundwert Jahr 1 (€)"))
         else:
-            # Formel: Alter Wert * (1 + (Wachstum * Kopplungsfaktor))
-            increase = 1 + (growth_rate * coupling)
-            current_val = prev_val * increase
+            current_val = prev_val * (1 + (growth_rate * coupling))
             
-        # Wert speichern für nächsten Loop
         prev_cc_values[name] = current_val
-        
-        # Wert zur Summe addieren
         total_manual_cc_cost += current_val
-        
-        # Wert im Row speichern
-        row[f"CC_{name}"] = current_val
-            
-        # Wert speichern für nächsten Loop
-        prev_cc_values[name] = current_val
-        
-        # Wert zur Summe addieren
-        total_manual_cc_cost += current_val
-        
-        # Wert im Row speichern (optional für Detailauswertung, mit Prefix um Konflikte zu vermeiden)
         row[f"CC_{name}"] = current_val
 
-    # 5. GuV Zusammenfassung
+    # 5. GuV
+    # COGS berechnet aus Produktmix (oder Fallback 10%)
+    cost_cogs = gross_rev * calc_cogs_ratio
+    row["Wareneinsatz (COGS)"] = cost_cogs
+    
     cost_mkt = n_t * st.session_state["cac"]
     row["Marketing Kosten"] = cost_mkt
-    cost_cogs = net_rev * 0.10
-    cost_cons = net_rev * 0.02
+    cost_cons = gross_rev * 0.02 # Sonstige variable Kosten pauschal
     
-    # Gesamtkosten inkludieren jetzt die manuellen Kostenstellen
     total_opex = daily_personnel_cost + cost_mkt + cost_cogs + cost_cons + setup_opex + total_manual_cc_cost
-    
     row["Gesamtkosten (OPEX)"] = total_opex
-    ebitda = net_rev - total_opex
-    ebit = ebitda - depreciation_now
     
+    ebitda = gross_rev - total_opex
+    ebit = ebitda - depreciation_now
     interest = debt_prev * (st.session_state["loan_rate"] / 100.0)
     ebt = ebit - interest
     tax = max(0, ebt * (st.session_state["tax_rate"] / 100.0))
@@ -597,8 +639,8 @@ for t in range(1, 11):
     row["Zinsaufwand"] = interest
     row["Jahresüberschuss"] = net_income
     
-    # 6. Cashflow
-    ar_end = net_rev * (st.session_state["dso"]/365.0)
+    # 6. Cashflow & Bilanz (Sweep)
+    ar_end = gross_rev * (st.session_state["dso"]/365.0)
     ap_end = total_opex * (st.session_state["dpo"]/365.0)
     ar_prev = results[-1]["Forderungen"] if t > 1 else 0
     ap_prev = results[-1]["Verb. LL"] if t > 1 else 0
@@ -616,13 +658,11 @@ for t in range(1, 11):
         
     cf_fin = equity_in + borrow - repay
     delta_cash = cf_op + cf_inv + cf_fin
-    
     row["Net Cash Change"] = delta_cash
     
     cash = cash_start + delta_cash
     debt = debt_prev + borrow - repay
     
-    # 7. Bilanz
     fixed_assets = max(0, fixed_assets + capex_now - depreciation_now)
     if t==1: retained_earnings = net_income
     else: retained_earnings += net_income
@@ -632,13 +672,11 @@ for t in range(1, 11):
     row["Anlagevermögen"] = fixed_assets
     row["Forderungen"] = ar_end
     row["Summe Aktiva"] = cash + fixed_assets + ar_end
-    
     row["Verb. LL"] = ap_end
     row["Bankdarlehen"] = debt
     row["Eigenkapital"] = eq_curr
     row["Summe Passiva"] = eq_curr + debt + ap_end
     row["Bilanz Check"] = row["Summe Aktiva"] - row["Summe Passiva"]
-    
     row["Kreditaufnahme"] = borrow
     row["Tilgung"] = repay
     
@@ -650,82 +688,40 @@ for t in range(1, 11):
 df = pd.DataFrame(results)
 df_assets_log = pd.DataFrame(asset_details_log)
 
-# --- PDF ERSTELLUNG ---
+# --- PDF DOWNLOAD ---
 pdf_bytes = create_pdf(df, st.session_state, pd.DataFrame(valid_jobs))
-
 with col_io1:
-    st.download_button(
-        label="📄 PDF Report herunterladen",
-        data=pdf_bytes,
-        file_name="finanzreport.pdf",
-        mime="application/pdf",
-        type="primary"
-    )
+    st.download_button("📄 PDF Report herunterladen", pdf_bytes, "finanzreport.pdf", "application/pdf", type="primary")
 
-# --- VISUALISIERUNG ---
-
-# VISUALISIERUNG FÜR KOSTENSTELLEN TAB (NEU)
+# --- OUTPUT: KOSTENÜBERSICHT ---
 with tab_costs:
     st.divider()
-    st.subheader("Übersicht aller Kostenstellen & Gemeinkosten")
-    
-    # Wir erstellen eine Zusammenfassung aus dem DF für die Anzeige
+    st.subheader("Kostenübersicht (ausgerechnet)")
     years = range(1, 11)
-    
-    # 1. Manuelle Kostenstellen extrahieren
     manual_rows = []
     for cc_item in cc_config:
-        name = cc_item["Kostenstelle"]
-        row_data = {"Kategorie": "Gemeinkosten (Variabel)", "Bezeichnung": name}
-        for y in years:
-            # Wir holen den Wert aus dem result DF, Spalte "CC_Name"
-            val = df.loc[df["Jahr"] == y, f"CC_{name}"].values[0]
-            row_data[y] = val
+        nm = cc_item.get("Kostenstelle")
+        if not nm: continue
+        row_data = {"Kategorie": "Gemeinkosten", "Bezeichnung": nm}
+        for y in years: row_data[y] = df.loc[df["Jahr"] == y, f"CC_{nm}"].values[0]
         manual_rows.append(row_data)
         
-    # 2. Bestehende Kostenkategorien hinzufügen (aus DF extrahiert)
-    # Personal
-    row_pers = {"Kategorie": "Personal", "Bezeichnung": "Löhne & Gehälter"}
-    for y in years: row_pers[y] = df.loc[df["Jahr"] == y, "Personalkosten"].values[0]
-    manual_rows.append(row_pers)
-    
-    # Marketing
-    row_mkt = {"Kategorie": "Marketing", "Bezeichnung": "Ads & CAC"}
-    for y in years: row_mkt[y] = df.loc[df["Jahr"] == y, "Marketing Kosten"].values[0]
-    manual_rows.append(row_mkt)
-    
-    # Abschreibungen (indirekte Kosten)
-    row_afa = {"Kategorie": "Assets", "Bezeichnung": "Abschreibungen (AfA)"}
-    for y in years: row_afa[y] = df.loc[df["Jahr"] == y, "Abschreibungen"].values[0]
-    manual_rows.append(row_afa)
-    
-    # Zinsen
-    row_zins = {"Kategorie": "Finanzierung", "Bezeichnung": "Zinsaufwand"}
-    for y in years: row_zins[y] = df.loc[df["Jahr"] == y, "Zinsaufwand"].values[0]
-    manual_rows.append(row_zins)
-
+    other_cats = [
+        ("Personal", "Löhne & Gehälter", "Personalkosten"),
+        ("Marketing", "Ads & CAC", "Marketing Kosten"),
+        ("COGS", "Wareneinsatz", "Wareneinsatz (COGS)"),
+        ("Assets", "AfA", "Abschreibungen")
+    ]
+    for cat, bez, col in other_cats:
+        r = {"Kategorie": cat, "Bezeichnung": bez}
+        for y in years: r[y] = df.loc[df["Jahr"] == y, col].values[0]
+        manual_rows.append(r)
+        
     df_cost_overview = pd.DataFrame(manual_rows)
-    
-    # Tabelle anzeigen
-    st.dataframe(
-        df_cost_overview.style.format({y: "{:,.0f} €" for y in years}),
-        use_container_width=True,
-        hide_index=True
-    )
-    
-    st.markdown("### Kostenverteilung")
-    # Chart
-    chart_data = df_cost_overview.melt(id_vars=["Bezeichnung", "Kategorie"], value_vars=years, var_name="Jahr", value_name="Kosten")
-    st.bar_chart(chart_data, x="Jahr", y="Kosten", color="Kategorie", stack=True)
+    st.dataframe(df_cost_overview.style.format({y: "{:,.0f} €" for y in years}), use_container_width=True, hide_index=True)
+    st.bar_chart(df_cost_overview.melt(id_vars=["Bezeichnung", "Kategorie"], value_vars=years, var_name="Jahr", value_name="Kosten"), x="Jahr", y="Kosten", color="Kategorie", stack=True)
 
-
-with tab_assets:
-    st.subheader("Anlagen & AfA Detail")
-    if not df_assets_log.empty:
-        c1, c2 = st.columns(2)
-        c1.dataframe(df_assets_log.pivot(index="Jahr", columns="Typ", values="Invest (€)").style.format("{:,.0f}"))
-        c2.dataframe(df_assets_log.pivot(index="Jahr", columns="Typ", values="AfA (€)").style.format("{:,.0f}"))
-
+# --- OUTPUT: DASHBOARD ---
 with tab_dash:
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Umsatz J10", f"€ {df['Umsatz'].iloc[-1]:,.0f}")
@@ -733,12 +729,11 @@ with tab_dash:
     k3.metric("FTEs J10", f"{df['FTE Total'].iloc[-1]:.1f}")
     k4.metric("Kasse J10", f"€ {df['Kasse'].iloc[-1]:,.0f}")
     
-    st.line_chart(df.set_index("Jahr")[["Kasse", "Bankdarlehen"]])
+    st.subheader("Vergleich: Umsatz vs. Kosten")
     st.line_chart(df.set_index("Jahr")[["Umsatz", "Gesamtkosten (OPEX)", "EBITDA"]])
 
-# Tabellen
 with tab_guv: 
-    cols = ["Umsatz", "Gesamtkosten (OPEX)", "EBITDA", "Abschreibungen", "EBIT", "Zinsaufwand", "Steuern", "Jahresüberschuss"]
+    cols = ["Umsatz", "Wareneinsatz (COGS)", "Gesamtkosten (OPEX)", "EBITDA", "Abschreibungen", "EBIT", "Zinsaufwand", "Steuern", "Jahresüberschuss"]
     st.dataframe(df.set_index("Jahr")[cols].T.style.format("€ {:,.0f}"))
 
 with tab_cf:
@@ -746,20 +741,8 @@ with tab_cf:
     st.dataframe(df.set_index("Jahr")[cols].T.style.format("€ {:,.0f}"))
 
 with tab_bilanz:
-    st.subheader("Bilanzstruktur")
     c1, c2 = st.columns(2)
-    
-    # Trennung Aktiva / Passiva
-    aktiva_cols = ["Anlagevermögen", "Kasse", "Forderungen", "Summe Aktiva"]
-    passiva_cols = ["Eigenkapital", "Bankdarlehen", "Verb. LL", "Summe Passiva"]
-    
-    with c1:
-        st.markdown("**Aktiva**")
-        st.dataframe(df.set_index("Jahr")[aktiva_cols].T.style.format("€ {:,.0f}"))
-    with c2:
-        st.markdown("**Passiva**")
-        st.dataframe(df.set_index("Jahr")[passiva_cols].T.style.format("€ {:,.0f}"))
-    
+    with c1: st.dataframe(df.set_index("Jahr")[["Anlagevermögen", "Kasse", "Forderungen", "Summe Aktiva"]].T.style.format("€ {:,.0f}"))
+    with c2: st.dataframe(df.set_index("Jahr")[["Eigenkapital", "Bankdarlehen", "Verb. LL", "Summe Passiva"]].T.style.format("€ {:,.0f}"))
     if df["Bilanz Check"].abs().max() > 1: st.error("Bilanzfehler!")
-    else: st.success("Bilanz ist ausgeglichen.")
-
+    else: st.success("Bilanz ausgeglichen.")

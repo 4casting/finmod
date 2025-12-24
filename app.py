@@ -530,22 +530,39 @@ for t in range(1, 11):
     row["Investitionen (Assets)"] = capex_now
     row["Abschreibungen"] = depreciation_now
     
-    # 4. Berechnung der Manuellen Kostenstellen (NEU)
+# 4. Berechnung der Manuellen Kostenstellen (KORRIGIERT)
     total_manual_cc_cost = 0.0
     
     for cc_item in cc_config:
-        name = cc_item["Kostenstelle"]
-        coupling = cc_item["Umsatz-Kopplung (%)"] / 100.0
+        # Sicherstellen, dass der Name existiert
+        name = cc_item.get("Kostenstelle")
+        if not name: continue # Überspringe Zeilen ohne Namen
+
+        # FIX: safe_float benutzen, falls das Feld leer ist
+        coupling_raw = cc_item.get("Umsatz-Kopplung (%)")
+        coupling = safe_float(coupling_raw) / 100.0
         
         # Wert aus Vorjahr (oder Startwert bei t=1)
-        prev_val = prev_cc_values[name]
+        # Fallback auf 0, falls Key fehlt (sollte nicht passieren, aber sicher ist sicher)
+        prev_val = prev_cc_values.get(name, 0.0)
         
         if t == 1:
-            current_val = cc_item["Grundwert Jahr 1 (€)"]
+            # FIX: Auch hier safe_float für den Startwert benutzen
+            start_val_raw = cc_item.get("Grundwert Jahr 1 (€)")
+            current_val = safe_float(start_val_raw)
         else:
             # Formel: Alter Wert * (1 + (Wachstum * Kopplungsfaktor))
             increase = 1 + (growth_rate * coupling)
             current_val = prev_val * increase
+            
+        # Wert speichern für nächsten Loop
+        prev_cc_values[name] = current_val
+        
+        # Wert zur Summe addieren
+        total_manual_cc_cost += current_val
+        
+        # Wert im Row speichern
+        row[f"CC_{name}"] = current_val
             
         # Wert speichern für nächsten Loop
         prev_cc_values[name] = current_val
@@ -745,3 +762,4 @@ with tab_bilanz:
     
     if df["Bilanz Check"].abs().max() > 1: st.error("Bilanzfehler!")
     else: st.success("Bilanz ist ausgeglichen.")
+

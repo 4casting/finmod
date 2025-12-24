@@ -12,7 +12,6 @@ from datetime import datetime
 # ==========================================
 
 def safe_float(value, default=0.0):
-    """Konvertiert Eingaben sicher in float."""
     try:
         if value is None or (isinstance(value, str) and not value.strip()) or pd.isna(value): 
             return default
@@ -46,35 +45,20 @@ st.set_page_config(page_title="Finanzmodell Pro (Master)", layout="wide")
 st.sidebar.success("Eingeloggt als Admin")
 
 # ==========================================
-# 1. DEFAULTS & STATE INITIALISIERUNG
+# 1. CONFIG & STATE
 # ==========================================
 
 DEFAULTS = {
-    # Markt (Bass Model)
-    "sam": 50000.0, 
-    "cap_pct": 5.0, 
-    "p_pct": 0.03,    # Innovatoren (Bass)
-    "q_pct": 0.38,    # Imitatoren (Bass)
-    "churn": 5.0, 
-    "manual_arpu": 1500.0,
+    # Markt
+    "sam": 50000.0, "cap_pct": 5.0, "p_pct": 0.03, "q_pct": 0.38, "churn": 5.0, "manual_arpu": 1500.0,
     # Finanzierung
-    "equity": 50000.0, 
-    "loan_initial": 0.0, 
-    "min_cash": 10000.0, 
-    "loan_rate": 5.0,
+    "equity": 50000.0, "loan_initial": 0.0, "min_cash": 10000.0, "loan_rate": 5.0,
     # Personal
-    "wage_inc": 2.0, 
-    "inflation": 2.0, 
-    "lnk_pct": 25.0, 
-    "target_rev_per_fte": 120000.0,
-    # Assets & Tax
-    "tax_rate": 25.0, 
-    "dso": 30, 
-    "dpo": 30, 
-    "cac": 250.0,
-    "capex_annual": 2000, 
-    "depreciation_misc": 5,
-    # Asset Preise
+    "wage_inc": 2.0, "inflation": 2.0, "lnk_pct": 25.0, "target_rev_per_fte": 120000.0,
+    # Ops
+    "tax_rate": 25.0, "dso": 30, "dpo": 30, "cac": 250.0,
+    "capex_annual": 2000, "depreciation_misc": 5,
+    # Hardware Preise
     "price_laptop": 1500, "ul_laptop": 3,
     "price_phone": 800, "ul_phone": 2,
     "price_car": 35000, "ul_car": 6,
@@ -82,9 +66,8 @@ DEFAULTS = {
     "price_desk": 1000, "ul_desk": 10,
 }
 
-for key, val in DEFAULTS.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+for k, v in DEFAULTS.items():
+    if k not in st.session_state: st.session_state[k] = v
 
 # Tabellen Init
 if "current_jobs_df" not in st.session_state:
@@ -111,7 +94,7 @@ if "cost_centers_df" not in st.session_state:
     ])
 
 # ==========================================
-# 2. PDF GENERATOR
+# 2. PDF GENERATOR (ROBUST)
 # ==========================================
 class PDFReport(FPDF):
     def fix_text(self, text):
@@ -121,11 +104,9 @@ class PDFReport(FPDF):
         return text.encode('latin-1', 'replace').decode('latin-1')
 
     def header(self):
-        self.set_font('Arial', 'B', 16)
-        self.set_text_color(44, 62, 80)
+        self.set_font('Arial', 'B', 16); self.set_text_color(44, 62, 80)
         self.cell(0, 10, self.fix_text('Business Plan & Finanzmodell'), 0, 1, 'L')
-        self.set_font('Arial', 'I', 9)
-        self.set_text_color(100, 100, 100)
+        self.set_font('Arial', 'I', 9); self.set_text_color(100, 100, 100)
         self.cell(0, 5, self.fix_text(f'Generiert am: {datetime.now().strftime("%d.%m.%Y")}'), 0, 1, 'L')
         self.set_draw_color(200, 200, 200); self.line(10, 25, 287, 25); self.ln(10)
 
@@ -181,7 +162,7 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
         pdf.cell(0, 10, pdf.fix_text(f"Jahr 10: Umsatz {last['Umsatz']:,.0f} EUR | EBITDA {last['EBITDA']:,.0f} EUR | Cash {last['Kasse']:,.0f} EUR"), 0, 1); pdf.ln(5)
         fig1, ax1 = plt.subplots(figsize=(10, 4))
         ax1.plot(df_results["Jahr"], df_results["Umsatz"], label="Umsatz", marker='o')
-        ax1.plot(df_results["Jahr"], df_results["Gesamtkosten (OPEX)"]+df_results["Wareneinsatz (COGS)"], label="Kosten Total", linestyle='--', color='red')
+        ax1.plot(df_results["Jahr"], df_results["Gesamtkosten (OPEX)"]+df_results["Wareneinsatz (COGS)"], label="Kosten", linestyle='--', color='red')
         ax1.bar(df_results["Jahr"], df_results["EBITDA"], label="EBITDA", alpha=0.3, color='green')
         ax1.legend(); ax1.grid(True, alpha=0.3); pdf.add_chart(fig1); plt.close(fig1)
 
@@ -194,17 +175,28 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
     if jobs_data is not None: pdf.sub_title("Personal"); pdf.add_dataframe_table(jobs_data[["Job Titel", "Jahresgehalt (€)", "FTE Jahr 1"]].head(10))
     if products_data is not None: pdf.sub_title("Produkte"); pdf.add_dataframe_table(products_data[["Produkt", "Preis (€)", "Herstellungskosten (COGS €)"]])
 
-    # 3. GuV
+    # 3. GuV (Fix für fehlende Spalten)
     pdf.add_page(); pdf.section_title("3. GuV")
     cols = ["Jahr", "Umsatz", "Wareneinsatz (COGS)", "Gesamtkosten (OPEX)", "EBITDA", "Abschreibungen", "EBIT", "Steuern", "Jahresüberschuss"]
+    # SAFETY CHECK: Nur vorhandene Spalten drucken
     exist = [c for c in cols if c in df_results.columns]; widths = [15] + [30]*(len(exist)-1)
     pdf.add_dataframe_table(df_results[exist], col_widths=widths)
     
-    # 4. Cashflow
+    # 4. Cashflow (Fix für fehlende Spalten)
     pdf.add_page(); pdf.section_title("4. Cashflow & Bilanz")
     cols_cf = ["Jahr", "Jahresüberschuss", "Investitionen (Assets)", "Kreditaufnahme", "Tilgung", "Net Cash Change", "Kasse"]
-    pdf.add_dataframe_table(df_results[cols_cf])
+    # SAFETY CHECK
+    exist_cf = [c for c in cols_cf if c in df_results.columns]
+    pdf.add_dataframe_table(df_results[exist_cf])
+    
     pdf.ln(5)
+    # Bilanz Spalten checken
+    cols_bil = ["Jahr", "Eigenkapital", "Bankdarlehen", "Verb. LL", "Summe Passiva"]
+    exist_bil = [c for c in cols_bil if c in df_results.columns]
+    if exist_bil:
+        pdf.sub_title("Bilanz Passiva")
+        pdf.add_dataframe_table(df_results[exist_bil])
+
     fig2, ax2 = plt.subplots(figsize=(10, 3.5))
     ax2.fill_between(df_results["Jahr"], df_results["Kasse"], color="skyblue", alpha=0.4, label="Kasse")
     ax2.plot(df_results["Jahr"], df_results["Bankdarlehen"], color="red", linestyle="--", label="Kredit")
@@ -215,7 +207,7 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
 # ==========================================
 # 3. UI LAYOUT
 # ==========================================
-st.title("Integriertes Finanzmodell")
+st.title("Integriertes Finanzmodell (V3 Robust)")
 
 col_top1, col_top2 = st.columns([1, 3])
 with col_top1:
@@ -251,7 +243,6 @@ tab_input, tab_prod, tab_assets, tab_jobs, tab_cc, tab_dash, tab_guv, tab_cf, ta
 ])
 
 # --- TAB INHALTE ---
-
 with tab_input:
     c1, c2 = st.columns(2)
     with c1:
@@ -259,8 +250,8 @@ with tab_input:
         st.number_input("SAM (Gesamtmarkt)", step=1000.0, key="sam")
         st.number_input("Marktanteil Ziel %", step=0.1, key="cap_pct")
         st.info("Bass Diffusions Parameter:")
-        st.number_input("Innovatoren (p) %", step=0.01, format="%.2f", key="p_pct", help="Wie schnell kaufen Early Adopters?")
-        st.number_input("Imitatoren (q) %", step=0.1, format="%.2f", key="q_pct", help="Wie stark ist Mundpropaganda?")
+        st.number_input("Innovatoren (p) %", step=0.01, format="%.2f", key="p_pct")
+        st.number_input("Imitatoren (q) %", step=0.1, format="%.2f", key="q_pct")
         st.number_input("Churn Rate %", step=0.5, key="churn")
         st.number_input("Manueller ARPU (Fallback)", step=50.0, key="manual_arpu")
     with c2:
@@ -302,7 +293,6 @@ with tab_cc:
 # 4. BERECHNUNGSLOGIK
 # ==========================================
 
-# 1. Produkte Mix
 prods = pd.DataFrame(st.session_state["products_df"]).to_dict('records')
 w_arpu, w_cogs = 0.0, 0.0
 has_prod = False
@@ -351,23 +341,19 @@ ccs = pd.DataFrame(st.session_state["cost_centers_df"]).to_dict('records')
 for t in range(1, 11):
     row = {"Jahr": t}
     
-    # 1. BASS MODELL (Korrekt)
+    # 1. BASS MODELL
     if t == 1:
         n_t = N_start
     else:
-        # Bass Formel: n(t) = n(t-1) + p*(M - n(t-1)) + q*(n(t-1)/M)*(M - n(t-1))
-        # Bereinigt um Churn
         M = market_pot
         adoption = P * (M - n_prev) + Q * (n_prev/M) * (M - n_prev)
         n_t = n_prev * (1 - st.session_state["churn"]/100) + adoption
-        # Cap at Market Size
-        n_t = min(n_t, M)
+        n_t = min(n_t, M) # Cap
     
     row["Kunden"] = n_t
     rev = n_t * calc_arpu
     row["Umsatz"] = rev
     
-    # Wachstum
     prev_rev = results[-1]["Umsatz"] if t > 1 else rev
     growth = (rev - prev_rev)/prev_rev if t > 1 and prev_rev > 0 else 0.0
     
@@ -382,16 +368,20 @@ for t in range(1, 11):
     base_ftes = sum(safe_float(j.get("FTE Jahr 1")) for j in jobs)
     target_fte = rev / st.session_state["target_rev_per_fte"] if st.session_state["target_rev_per_fte"] > 0 else 0
     
+    curr_total_fte = 0
     for j in jobs:
         base = safe_float(j.get("FTE Jahr 1"))
         sal = safe_float(j.get("Jahresgehalt (€)"))
+        # FTE Wachstum
         fte = max(base, target_fte * (base/base_ftes)) if base_ftes > 0 else 0
+        curr_total_fte += fte
         pers_cost += sal * fte * wage_idx * (1 + st.session_state["lnk_pct"]/100)
         
         for hw in hw_needs:
             if j.get(hw): hw_needs[hw] += fte
     
     row["Personalkosten"] = pers_cost
+    row["FTE Total"] = curr_total_fte
     
     # Kostenstellen
     cc_sum = 0.0
@@ -410,7 +400,6 @@ for t in range(1, 11):
     
     # Assets & AfA
     capex = 0.0; afa = 0.0
-    # Misc
     misc_p = st.session_state["capex_annual"]; misc_ul = st.session_state["depreciation_misc"]
     asset_reg["Misc"].append({"y":t, "v":misc_p, "ul":misc_ul})
     capex += misc_p
@@ -424,7 +413,6 @@ for t in range(1, 11):
             cost = buy * price; capex += cost
             asset_reg[k].append({"y":t, "amt":buy, "v":cost, "ul":ul})
             
-    # AfA Loop
     for k in asset_reg:
         for x in asset_reg[k]:
             if 0 <= (t - x["y"]) < x["ul"]: afa += x["v"] / x["ul"]
@@ -436,7 +424,7 @@ for t in range(1, 11):
     intr = debt * (st.session_state["loan_rate"]/100)
     ebt = ebit - intr
     
-    # Steuer (Loss Carryforward)
+    # Steuer
     tax = 0.0
     if ebt < 0: loss_carry += abs(ebt)
     else:
@@ -465,17 +453,18 @@ for t in range(1, 11):
     row["Kasse"] = cash_end
     row["Bankdarlehen"] = debt_end
     row["Net Cash Change"] = cf_op + cf_inv + borrow - repay
+    row["Kreditaufnahme"] = borrow
+    row["Tilgung"] = repay
     
-    # State update
     cash = cash_end; debt = debt_end; n_prev = n_t
     fixed_assets = max(0, fixed_assets + capex - afa)
     retained += net
     
-    # Bilanz Check
     row["Anlagevermögen"] = fixed_assets
     row["Eigenkapital"] = st.session_state["equity"] + retained
     row["Summe Aktiva"] = fixed_assets + cash_end
     row["Summe Passiva"] = row["Eigenkapital"] + debt_end
+    row["Verb. LL"] = 0 # Vereinfachung
     
     results.append(row)
 
@@ -485,7 +474,6 @@ df = pd.DataFrame(results)
 # 5. OUTPUTS
 # ==========================================
 
-# PDF Download
 with col_top2:
     pdf_bytes = create_detailed_pdf(df, st.session_state, pd.DataFrame(jobs), pd.DataFrame(prods), pd.DataFrame(ccs))
     st.download_button("📄 PDF REPORT LADEN", pdf_bytes, "business_plan.pdf", "application/pdf")

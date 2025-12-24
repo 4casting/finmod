@@ -40,21 +40,13 @@ st.set_page_config(page_title="Finanzmodell Pro", layout="wide")
 
 # --- 1. DEFINITION DER STANDARDS ---
 DEFAULTS = {
-    # Markt & Wachstum
     "sam": 39000.0, "cap_pct": 2.3, "p_pct": 2.5, "q_pct": 38.0, "churn": 10.0, "discount": 0.0,
-    # Finanzierung
     "equity": 100000.0, "loan_initial": 0.0, "min_cash": 100000.0, "loan_rate": 5.0,
-    # Personal Global
     "wage_inc": 1.5, "inflation": 2.0, "lnk_pct": 25.0, "target_rev_per_fte": 150000.0,
-    # Working Capital & Tax
     "dso": 30, "dpo": 30, "tax_rate": 30.0, "cac": 3590.0,
-    # Assets PREISE
     "price_desk": 2500, "price_laptop": 2000, "price_phone": 800, "price_car": 40000, "price_truck": 60000,
-    # Assets NUTZUNGSDAUER (Jahre)
     "ul_desk": 13, "ul_laptop": 3, "ul_phone": 2, "ul_car": 6, "ul_truck": 8,
-    # Sonstiges
     "capex_annual": 5000, "depreciation_misc": 5,
-    # Legacy ARPU (wird durch Produkte überschrieben, wenn vorhanden)
     "manual_arpu": 3000.0
 }
 
@@ -62,11 +54,6 @@ DEFAULTS = {
 for key, default_val in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = default_val
-
-# Helper für Callbacks (Fix für "Doppelte Eingabe")
-def update_df_from_editor(key_name, state_name):
-    """Speichert Daten sofort, wenn der Editor geändert wird."""
-    st.session_state[state_name] = st.session_state[key_name]
 
 # Jobs Tabelle Initialisieren
 if "current_jobs_df" not in st.session_state:
@@ -78,7 +65,6 @@ if "current_jobs_df" not in st.session_state:
         {"Job Titel": "Techniker", "Jahresgehalt (€)": 40000.0, "FTE Jahr 1": 2.0, "Laptop": False, "Smartphone": True, "Auto": False, "LKW": True, "Büro": False, "Sonstiges (€)": 1000.0},
         {"Job Titel": "Buchhaltung", "Jahresgehalt (€)": 42000.0, "FTE Jahr 1": 0.5, "Laptop": True, "Smartphone": False, "Auto": False, "LKW": False, "Büro": True, "Sonstiges (€)": 0.0},
     ]
-    # Auffüllen auf 15 Slots
     for i in range(len(defined_roles) + 1, 16):
         defined_roles.append({
             "Job Titel": f"Position {i} (Platzhalter)", "Jahresgehalt (€)": 0.0, "FTE Jahr 1": 0.0, 
@@ -96,14 +82,13 @@ if "cost_centers_df" not in st.session_state:
         {"Kostenstelle": "Versicherungen", "Grundwert Jahr 1 (€)": 3000, "Umsatz-Kopplung (%)": 0},
     ])
 
-# PRODUKTE Tabelle Initialisieren (NEU)
+# PRODUKTE Tabelle Initialisieren
 if "products_df" not in st.session_state:
     products_init = [
         {"Produkt": "Standard Abo", "Preis (€)": 100.0, "Avg. Rabatt (%)": 0.0, "Herstellungskosten (COGS €)": 10.0, "Take Rate (%)": 80.0, "Wiederkauf Rate (%)": 90.0, "Wiederkauf alle (Monate)": 12},
         {"Produkt": "Premium Add-On", "Preis (€)": 500.0, "Avg. Rabatt (%)": 5.0, "Herstellungskosten (COGS €)": 50.0, "Take Rate (%)": 20.0, "Wiederkauf Rate (%)": 50.0, "Wiederkauf alle (Monate)": 24},
         {"Produkt": "Setup Gebühr", "Preis (€)": 1000.0, "Avg. Rabatt (%)": 0.0, "Herstellungskosten (COGS €)": 200.0, "Take Rate (%)": 100.0, "Wiederkauf Rate (%)": 0.0, "Wiederkauf alle (Monate)": 0},
     ]
-    # Auffüllen auf 10 Slots
     for i in range(len(products_init) + 1, 11):
         products_init.append({
             "Produkt": f"Produkt {i}", "Preis (€)": 0.0, "Avg. Rabatt (%)": 0.0, "Herstellungskosten (COGS €)": 0.0, "Take Rate (%)": 0.0, "Wiederkauf Rate (%)": 0.0, "Wiederkauf alle (Monate)": 0
@@ -223,16 +208,29 @@ with st.expander("📂 Datei Speichern & Laden (Import/Export)", expanded=True):
     col_io1, col_io2 = st.columns(2)
     with col_io1:
         st.markdown("##### 1. Speichern")
+        # CONFIG SAMMELN
         config_data = {key: st.session_state[key] for key in DEFAULTS.keys()}
+        
+        # JOBS
         if "current_jobs_df" in st.session_state:
-             df_export = st.session_state["current_jobs_df"].fillna(0).copy()
+             # FIX: Sicherstellen, dass es ein DF ist
+             df_jobs = pd.DataFrame(st.session_state["current_jobs_df"])
+             df_export = df_jobs.fillna(0).copy()
              for c in ["Laptop", "Smartphone", "Auto", "LKW", "Büro"]:
                  if c in df_export.columns: df_export[c] = df_export[c].apply(bool)
              config_data["jobs_data"] = df_export.to_dict(orient="records")
+        
+        # KOSTENSTELLEN
         if "cost_centers_df" in st.session_state:
-             config_data["cost_centers_data"] = st.session_state["cost_centers_df"].to_dict(orient="records")
+             # FIX: Sicherstellen, dass es ein DF ist
+             df_cc = pd.DataFrame(st.session_state["cost_centers_df"])
+             config_data["cost_centers_data"] = df_cc.to_dict(orient="records")
+        
+        # PRODUKTE (HIER WAR DER FEHLER)
         if "products_df" in st.session_state:
-             config_data["products_data"] = st.session_state["products_df"].to_dict(orient="records")
+             # FIX: Explizit in DataFrame wandeln, falls es eine Liste ist
+             df_prod = pd.DataFrame(st.session_state["products_df"])
+             config_data["products_data"] = df_prod.to_dict(orient="records")
         
         st.download_button("💾 Als JSON herunterladen", json.dumps(config_data, indent=2), "finanzmodell_config.json", "application/json")
 
@@ -261,7 +259,7 @@ with st.expander("📂 Datei Speichern & Laden (Import/Export)", expanded=True):
 # --- TABS ---
 tab_input, tab_products, tab_assets, tab_jobs, tab_costs, tab_dash, tab_guv, tab_cf, tab_bilanz = st.tabs([
     "📝 Markt & Finanzen", 
-    "📦 Produkte", # NEU
+    "📦 Produkte", 
     "📉 Abschreibungen & Assets", 
     "👥 Personal & Jobs", 
     "🏢 Kostenstellen", 
@@ -303,19 +301,17 @@ with tab_input:
         st.number_input("Steuersatz %", key="tax_rate")
         st.number_input("Marketing CAC (€)", key="cac")
 
-# --- TAB: PRODUKTE (NEU) ---
+# --- TAB: PRODUKTE ---
 with tab_products:
     st.header("Produktkalkulation & Unit Economics")
-    st.info("Definiere hier deine Produkte. Diese Werte ersetzen den manuellen ARPU. 'Wiederkauf alle X Monate' steuert die Häufigkeit pro Jahr.")
+    st.info("Definiere hier deine Produkte. Diese Werte ersetzen den manuellen ARPU.")
     
-    # Editor mit on_change Handler für Sofort-Update
+    # 1. Editor anzeigen
     edited_products = st.data_editor(
         st.session_state["products_df"],
         num_rows="fixed",
         use_container_width=True,
         key="prod_editor_widget",
-        on_change=update_df_from_editor,
-        args=("prod_editor_widget", "products_df"),
         column_config={
             "Produkt": st.column_config.TextColumn("Produkt Name", required=True),
             "Preis (€)": st.column_config.NumberColumn("Preis (Netto)", min_value=0.0, format="%.2f €"),
@@ -326,6 +322,8 @@ with tab_products:
             "Wiederkauf alle (Monate)": st.column_config.NumberColumn("Zyklus (Monate)", min_value=0, help="0 = Einmalkauf. 12 = 1x jährlich. 1 = Monatlich."),
         }
     )
+    # 2. State sofort updaten (löst "Doppelte Eingabe" Problem)
+    st.session_state["products_df"] = edited_products
 
 # --- TAB 2: ABSCHREIBUNGEN ---
 with tab_assets:
@@ -362,14 +360,11 @@ with tab_jobs:
         
     st.subheader("Job Definitionen (15 Slots)")
     
-    # Editor mit on_change Handler (Fix für Doppeleingabe)
     edited_jobs = st.data_editor(
         st.session_state["current_jobs_df"],
         num_rows="fixed",
         use_container_width=True,
         key="job_editor_widget",
-        on_change=update_df_from_editor,
-        args=("job_editor_widget", "current_jobs_df"),
         column_config={
             "Job Titel": st.column_config.TextColumn("Job Titel", required=True),
             "Jahresgehalt (€)": st.column_config.NumberColumn("Jahresgehalt", min_value=0, format="%d €"),
@@ -383,20 +378,18 @@ with tab_jobs:
         },
         hide_index=True
     )
+    st.session_state["current_jobs_df"] = edited_jobs
 
 # --- TAB 4: KOSTENSTELLEN ---
 with tab_costs:
     st.header("Zusätzliche Kostenstellen & Gemeinkosten")
     st.info("Tragen Sie hier Kostenstellen ein.")
     
-    # Editor mit on_change Handler (Fix für Doppeleingabe)
     edited_cc = st.data_editor(
         st.session_state["cost_centers_df"],
         num_rows="dynamic",
         use_container_width=True,
         key="cc_editor_widget",
-        on_change=update_df_from_editor,
-        args=("cc_editor_widget", "cost_centers_df"),
         column_config={
             "Kostenstelle": st.column_config.TextColumn("Bezeichnung", required=True),
             "Grundwert Jahr 1 (€)": st.column_config.NumberColumn("Startwert (Jahr 1)", min_value=0, format="%.2f €"),
@@ -409,11 +402,13 @@ with tab_costs:
             ),
         }
     )
+    st.session_state["cost_centers_df"] = edited_cc
 
 # --- BERECHNUNG ---
 
 # 1. Parsing Input Data
-jobs_config = st.session_state["current_jobs_df"].to_dict(orient="records")
+# Safe conversion to records
+jobs_config = pd.DataFrame(st.session_state["current_jobs_df"]).to_dict(orient="records")
 valid_jobs = []
 for job in jobs_config:
     job["FTE Jahr 1"] = safe_float(job.get("FTE Jahr 1"))
@@ -424,10 +419,10 @@ for job in jobs_config:
     job["_setup_opex"] = job["Sonstiges (€)"]
     valid_jobs.append(job)
 
-cc_config = st.session_state["cost_centers_df"].to_dict(orient="records")
-products_config = st.session_state["products_df"].to_dict(orient="records")
+cc_config = pd.DataFrame(st.session_state["cost_centers_df"]).to_dict(orient="records")
+products_config = pd.DataFrame(st.session_state["products_df"]).to_dict(orient="records")
 
-# 2. PRODUKT LOGIK: Berechne gemittelten ARPU und COGS Quote
+# 2. PRODUKT LOGIK
 active_products = []
 weighted_arpu = 0.0
 weighted_cogs = 0.0
@@ -443,17 +438,10 @@ for p in products_config:
         repurchase_rate = safe_float(p.get("Wiederkauf Rate (%)")) / 100.0
         months = safe_float(p.get("Wiederkauf alle (Monate)"))
         
-        # Frequenz pro Jahr
-        # Einmalkauf (Monate=0) => freq = 1 (im ersten Jahr, statistisch gesehen)
-        # Wenn Zyklus > 0: Freq = 1 + (Repurchase * (12/Monate))
-        # Vereinfachung: "Take Rate" gilt pro Jahr auf die Kundenbasis. 
         if months <= 0:
-            freq = 1.0 # Einmalig
+            freq = 1.0 
         else:
-            # Beispiel: 12 Monate = 1x. 1 Monat = 12x.
             cycles_per_year = 12.0 / months
-            # Wir nehmen an: 1. Kauf + (Wiederkaufwahrscheinlichkeit * weitere Zyklen)
-            # Das ist eine starke Vereinfachung für ein Jahresmodell
             freq = 1.0 + (repurchase_rate * (cycles_per_year - 1)) if cycles_per_year >= 1 else 1.0
             
         net_price = price * (1 - disc)
@@ -463,14 +451,11 @@ for p in products_config:
         weighted_arpu += rev_per_customer
         weighted_cogs += cogs_per_customer
 
-# Fallback auf Manuell, wenn keine Produkte definiert
 if not has_products or weighted_arpu == 0:
     calc_arpu = st.session_state["manual_arpu"]
-    # Standardannahme COGS 10% wenn keine Produkte da sind
     calc_cogs_ratio = 0.10 
 else:
     calc_arpu = weighted_arpu
-    # COGS Ratio berechnen für GuV Logik
     calc_cogs_ratio = weighted_cogs / weighted_arpu if weighted_arpu > 0 else 0.0
 
 # 3. Konstanten
@@ -480,7 +465,6 @@ Q = st.session_state["q_pct"] / 100.0
 CHURN = st.session_state["churn"] / 100.0
 N_start = 10.0 
 
-# Asset Register Initialisierung
 asset_types = {
     "Laptop": {"price_key": "price_laptop", "ul_key": "ul_laptop"},
     "Smartphone": {"price_key": "price_phone", "ul_key": "ul_phone"},
@@ -507,7 +491,7 @@ wage_factor = 1.0
 debt_prev = st.session_state["loan_initial"]
 asset_details_log = []
 
-# --- HAUPT SCHLEIFE (JAHRE) ---
+# --- HAUPT SCHLEIFE ---
 for t in range(1, 11):
     row = {"Jahr": t}
     
@@ -519,15 +503,13 @@ for t in range(1, 11):
         n_t = n_prev * (1 - CHURN) + (adopt * pot)
     row["Kunden"] = n_t
     
-    # Umsatz berechnen (Produkte oder Manuell)
     gross_rev = n_t * calc_arpu
     row["Umsatz"] = gross_rev
     
-    # Umsatzwachstum für Kostenstellen
     rev_prev_val = results[-1]["Umsatz"] if t > 1 else gross_rev
     growth_rate = (gross_rev - rev_prev_val) / rev_prev_val if (t > 1 and rev_prev_val > 0) else 0.0
 
-    # 2. Personal & Assets Bedarf
+    # 2. Personal
     target_total_fte = 0
     if st.session_state["target_rev_per_fte"] > 0:
         target_total_fte = gross_rev / st.session_state["target_rev_per_fte"]
@@ -615,13 +597,12 @@ for t in range(1, 11):
         row[f"CC_{name}"] = current_val
 
     # 5. GuV
-    # COGS berechnet aus Produktmix (oder Fallback 10%)
     cost_cogs = gross_rev * calc_cogs_ratio
     row["Wareneinsatz (COGS)"] = cost_cogs
     
     cost_mkt = n_t * st.session_state["cac"]
     row["Marketing Kosten"] = cost_mkt
-    cost_cons = gross_rev * 0.02 # Sonstige variable Kosten pauschal
+    cost_cons = gross_rev * 0.02
     
     total_opex = daily_personnel_cost + cost_mkt + cost_cogs + cost_cons + setup_opex + total_manual_cc_cost
     row["Gesamtkosten (OPEX)"] = total_opex
@@ -639,7 +620,7 @@ for t in range(1, 11):
     row["Zinsaufwand"] = interest
     row["Jahresüberschuss"] = net_income
     
-    # 6. Cashflow & Bilanz (Sweep)
+    # 6. Cashflow & Bilanz
     ar_end = gross_rev * (st.session_state["dso"]/365.0)
     ap_end = total_opex * (st.session_state["dpo"]/365.0)
     ar_prev = results[-1]["Forderungen"] if t > 1 else 0

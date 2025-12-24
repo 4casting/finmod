@@ -110,15 +110,26 @@ if "products_df" not in st.session_state:
         })
     st.session_state["products_df"] = pd.DataFrame(products_init)
 
-# --- 2. PDF REPORT GENERATOR (DETAIL) ---
+# --- 2. PDF REPORT GENERATOR (MIT UTF-8 FIX) ---
 class PDFReport(FPDF):
+    def fix_text(self, text):
+        """Ersetzt Sonderzeichen die in Latin-1 crashen (vor allem €)."""
+        if isinstance(text, (int, float)):
+            return str(text)
+        if text is None:
+            return ""
+        # 1. Euro Zeichen explizit ersetzen
+        text = str(text).replace("€", "EUR")
+        # 2. Encoding erzwingen um Absturz zu verhindern
+        return text.encode('latin-1', 'replace').decode('latin-1')
+
     def header(self):
         self.set_font('Arial', 'B', 16)
-        self.set_text_color(44, 62, 80) # Dunkelblau
-        self.cell(0, 10, 'Business Plan & Finanzmodell', 0, 1, 'L')
+        self.set_text_color(44, 62, 80) 
+        self.cell(0, 10, self.fix_text('Business Plan & Finanzmodell'), 0, 1, 'L')
         self.set_font('Arial', 'I', 9)
         self.set_text_color(100, 100, 100)
-        self.cell(0, 5, f'Generiert am: {datetime.now().strftime("%d.%m.%Y %H:%M")}', 0, 1, 'L')
+        self.cell(0, 5, self.fix_text(f'Generiert am: {datetime.now().strftime("%d.%m.%Y %H:%M")}'), 0, 1, 'L')
         self.set_draw_color(200, 200, 200)
         self.line(10, 25, 287, 25)
         self.ln(10)
@@ -127,19 +138,19 @@ class PDFReport(FPDF):
         self.set_y(-15)
         self.set_font('Arial', 'I', 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f'Seite {self.page_no()}/{{nb}} - Vertraulich', 0, 0, 'C')
+        self.cell(0, 10, self.fix_text(f'Seite {self.page_no()}/{{nb}} - Vertraulich'), 0, 0, 'C')
 
     def section_title(self, title):
         self.set_font('Arial', 'B', 14)
-        self.set_text_color(0, 51, 102) # Navy
-        self.set_fill_color(230, 240, 255) # Hellblau
-        self.cell(0, 10, title, 0, 1, 'L', 1)
+        self.set_text_color(0, 51, 102) 
+        self.set_fill_color(230, 240, 255) 
+        self.cell(0, 10, self.fix_text(title), 0, 1, 'L', 1)
         self.ln(4)
 
     def sub_title(self, title):
         self.set_font('Arial', 'B', 11)
         self.set_text_color(0, 0, 0)
-        self.cell(0, 8, title, 0, 1, 'L')
+        self.cell(0, 8, self.fix_text(title), 0, 1, 'L')
 
     def add_key_value_table(self, data_dict, title="Parameter"):
         self.sub_title(title)
@@ -148,11 +159,11 @@ class PDFReport(FPDF):
         row_height = 6
         for k, v in data_dict.items():
             self.set_font('Arial', 'B', 9)
-            self.cell(col_width, row_height, str(k), 1)
+            self.cell(col_width, row_height, self.fix_text(str(k)), 1)
             self.set_font('Arial', '', 9)
             val_str = str(v)
             if isinstance(v, float): val_str = f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            self.cell(col_width, row_height, val_str, 1)
+            self.cell(col_width, row_height, self.fix_text(val_str), 1)
             self.ln()
         self.ln(5)
 
@@ -166,7 +177,7 @@ class PDFReport(FPDF):
         else:
             widths = col_widths
         for i, col in enumerate(df.columns):
-            self.cell(widths[i], 7, str(col), 1, 0, 'C', 1)
+            self.cell(widths[i], 7, self.fix_text(str(col)), 1, 0, 'C', 1)
         self.ln()
         self.set_font('Arial', '', 8)
         for _, row in df.iterrows():
@@ -175,7 +186,7 @@ class PDFReport(FPDF):
                 if isinstance(val, (int, float)): txt = f"{val:,.0f}".replace(",", ".")
                 elif isinstance(val, bool): txt = "Ja" if val else "Nein"
                 else: txt = str(val)
-                self.cell(widths[i], 6, txt, 1, 0, 'R' if isinstance(val, (int, float)) else 'L')
+                self.cell(widths[i], 6, self.fix_text(txt), 1, 0, 'R' if isinstance(val, (int, float)) else 'L')
             self.ln()
         self.ln(5)
 
@@ -196,13 +207,13 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
         last_year = df_results.iloc[-1]
         pdf.set_font('Arial', '', 12)
         pdf.ln(5)
-        pdf.cell(0, 10, "Ergebnisse im Jahr 10 (Prognose):", 0, 1)
+        pdf.cell(0, 10, pdf.fix_text("Ergebnisse im Jahr 10 (Prognose):"), 0, 1)
         pdf.set_font('Arial', 'B', 14)
-        pdf.cell(60, 15, f"Umsatz: {last_year['Umsatz']:,.0f} EUR", 1, 0, 'C')
+        pdf.cell(60, 15, pdf.fix_text(f"Umsatz: {last_year['Umsatz']:,.0f} EUR"), 1, 0, 'C')
         pdf.cell(10, 15, "", 0, 0)
-        pdf.cell(60, 15, f"EBITDA: {last_year['EBITDA']:,.0f} EUR", 1, 0, 'C')
+        pdf.cell(60, 15, pdf.fix_text(f"EBITDA: {last_year['EBITDA']:,.0f} EUR"), 1, 0, 'C')
         pdf.cell(10, 15, "", 0, 0)
-        pdf.cell(60, 15, f"Cash: {last_year['Kasse']:,.0f} EUR", 1, 0, 'C')
+        pdf.cell(60, 15, pdf.fix_text(f"Cash: {last_year['Kasse']:,.0f} EUR"), 1, 0, 'C')
         pdf.ln(25)
         
         fig1, ax1 = plt.subplots(figsize=(10, 4))
@@ -232,7 +243,7 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
     pdf.add_key_value_table(col1_params, "Markt & Finanzierung")
     pdf.set_y(y_start)
     pdf.set_x(150)
-    pdf.add_key_value_table(col2_params, "Makroökonomie & Steuern")
+    pdf.add_key_value_table(col2_params, "Makrooekonomie & Steuern")
     pdf.ln(10)
     
     if jobs_data is not None and not jobs_data.empty:
@@ -292,9 +303,9 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
     fig3, ax3 = plt.subplots(figsize=(10, 3.5))
     ax3.fill_between(df_results["Jahr"], df_results["Kasse"], color="skyblue", alpha=0.4, label="Kassenbestand")
     ax3.plot(df_results["Jahr"], df_results["Bankdarlehen"], color="red", linestyle="--", label="Verbindlichkeiten")
-    ax3.set_title("Liquidität vs. Schulden")
+    ax3.set_title("Liquiditaet vs. Schulden")
     ax3.legend()
-    pdf.sub_title("Liquiditätsentwicklung")
+    pdf.sub_title("Liquiditaetsentwicklung")
     pdf.add_chart(fig3)
     plt.close(fig3)
 

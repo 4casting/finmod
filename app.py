@@ -41,7 +41,39 @@ def check_password():
 if not check_password():
     st.stop()
 
-st.set_page_config(page_title="Finanzmodell Pro (V4 ROA)", layout="wide")
+st.set_page_config(page_title="Finanzmodell Pro (V5 Strategie)", layout="wide")
+
+# --- CSS: TABS NACH UNTEN VERSCHIEBEN ---
+st.markdown("""
+    <style>
+        /* Container für Tabs fixieren */
+        div[data-testid="stTabs"] {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 9999;
+            background-color: #ffffff;
+            border-top: 1px solid #e0e0e0;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            box-shadow: 0px -2px 10px rgba(0,0,0,0.05);
+        }
+        /* Buttons in den Tabs etwas kompakter */
+        div[data-testid="stTabs"] button {
+            flex: 1;
+        }
+        /* Hauptinhalt Padding unten geben, damit nichts verdeckt wird */
+        .main .block-container {
+            padding-bottom: 150px;
+        }
+        /* Sidebar anpassen */
+        section[data-testid="stSidebar"] {
+            z-index: 10000; /* Sidebar über Tabs */
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 st.sidebar.success("Eingeloggt als Admin")
 
 # ==========================================
@@ -49,8 +81,8 @@ st.sidebar.success("Eingeloggt als Admin")
 # ==========================================
 
 DEFAULTS = {
-    # Markt (Basis) - p/q hier entfernt, da sie nun über Strategie kommen
-    "sam": 50000.0, "cap_pct": 5.0, "churn": 5.0,
+    # Markt (Basis)
+    "sam": 50000.0, "cap_pct": 5.0, "p_pct": 0.03, "q_pct": 0.38, "churn": 5.0,
     
     # ARPU Steuerung
     "use_manual_arpu": False,
@@ -184,20 +216,23 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
     # 2. Inputs
     pdf.add_page(); pdf.section_title("2. Eingaben")
     pdf.add_key_value_table({
-        "SAM": session_data.get("sam"), "Startkapital": session_data.get("equity"), "Min Cash": session_data.get("min_cash")
+        "SAM": session_data.get("sam"), "Marktanteil Ziel": session_data.get("cap_pct"),
+        "Equity": session_data.get("equity"), "Min Cash": session_data.get("min_cash")
     }, "Markt & Finanz")
     if jobs_data is not None: pdf.sub_title("Personal"); pdf.add_dataframe_table(jobs_data[["Job Titel", "Jahresgehalt (€)", "FTE Jahr 1"]].head(10))
     if products_data is not None: pdf.sub_title("Produkte"); pdf.add_dataframe_table(products_data[["Produkt", "Preis (€)", "Herstellungskosten (COGS €)"]])
 
-    # 3. GuV
+    # 3. GuV (Fix für fehlende Spalten)
     pdf.add_page(); pdf.section_title("3. GuV")
     cols = ["Jahr", "Umsatz", "Wareneinsatz (COGS)", "Gesamtkosten (OPEX)", "EBITDA", "Abschreibungen", "EBIT", "Steuern", "Jahresüberschuss"]
+    # SAFETY CHECK: Nur vorhandene Spalten drucken
     exist = [c for c in cols if c in df_results.columns]; widths = [15] + [30]*(len(exist)-1)
     pdf.add_dataframe_table(df_results[exist], col_widths=widths)
     
-    # 4. Cashflow
+    # 4. Cashflow (Fix für fehlende Spalten)
     pdf.add_page(); pdf.section_title("4. Cashflow & Bilanz")
     cols_cf = ["Jahr", "Jahresüberschuss", "Investitionen (Assets)", "Kreditaufnahme", "Tilgung", "Net Cash Change", "Kasse"]
+    # SAFETY CHECK
     exist_cf = [c for c in cols_cf if c in df_results.columns]
     pdf.add_dataframe_table(df_results[exist_cf])
     
@@ -216,7 +251,7 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
 # ==========================================
 # 3. UI LAYOUT
 # ==========================================
-st.title("Finanzmodell Pro (V4 - ROA Strategy)")
+st.title("Finanzmodell Pro (V5 Strategie)")
 
 col_top1, col_top2 = st.columns([1, 3])
 with col_top1:
@@ -246,40 +281,47 @@ with st.expander("📂 Import / Export", expanded=False):
             if "cc" in d: st.session_state["cost_centers_df"] = pd.DataFrame(d["cc"])
             st.rerun()
 
-# Tabs
-tab_input, tab_prod, tab_assets, tab_jobs, tab_cc, tab_dash, tab_guv, tab_cf, tab_bilanz = st.tabs([
-    "📝 Markt", "📦 Produkte", "📉 Assets", "👥 Personal", "🏢 Kostenstellen", "📊 Dashboard", "📑 GuV", "💰 Cashflow", "⚖️ Bilanz"
+# Tabs (STRATEGIEN HINZUGEFÜGT)
+tab_input, tab_strat, tab_prod, tab_assets, tab_jobs, tab_cc, tab_dash, tab_guv, tab_cf, tab_bilanz = st.tabs([
+    "Markt", "Strategien", "Produkte", "Assets", "Personal", "Kostenstellen", "Dashboard", "GuV", "Cashflow", "Bilanz"
 ])
 
 # --- TAB INHALTE ---
 with tab_input:
     # --- Standard Markt Inputs ---
-    st.subheader("Markt Basisdaten")
+    st.subheader("Markt Basisdaten & Finanzierung")
     c1, c2 = st.columns(2)
     with c1:
         st.number_input("SAM (Gesamtmarkt)", step=1000.0, key="sam")
         st.number_input("Churn Rate %", step=0.5, key="churn")
-        
-    with c2:
-        st.subheader("Finanzierung")
-        st.number_input("Eigenkapital (€)", step=5000.0, key="equity")
-        st.number_input("Mindest-Cash (€)", step=1000.0, key="min_cash")
-        st.number_input("Start-Kredit (€)", step=5000.0, key="loan_initial")
-        st.number_input("Kredit-Zins %", step=0.1, key="loan_rate")
         st.markdown("---")
         st.number_input("Steuersatz %", step=1.0, key="tax_rate")
         st.number_input("Lohnsteigerung %", step=0.1, key="wage_inc")
         st.number_input("Inflation %", step=0.1, key="inflation")
+        
+    with c2:
+        st.number_input("Eigenkapital (€)", step=5000.0, key="equity")
+        st.number_input("Mindest-Cash (€)", step=1000.0, key="min_cash")
+        st.number_input("Start-Kredit (€)", step=5000.0, key="loan_initial")
+        st.number_input("Kredit-Zins %", step=0.1, key="loan_rate")
 
-    # --- ROA STRATEGIE PARAMETER ---
+with tab_strat:
+    # --- NEUER TAB STRATEGIEN ---
+    st.header("Wachstums-Strategien (Bass Modell)")
+    st.caption("Definieren Sie hier die Bass-Diffusions-Parameter (Basis) und die Szenarien für den Strategievergleich.")
+    
+    st.subheader("Basis Parameter (für Berechnung Haupt-Szenario)")
+    c_b1, c_b2, c_b3 = st.columns(3)
+    with c_b1: st.number_input("Innovatoren (p) %", step=0.01, format="%.3f", key="p_pct")
+    with c_b2: st.number_input("Imitatoren (q) %", step=0.1, format="%.3f", key="q_pct")
+    with c_b3: st.number_input("Marktanteil Ziel %", step=0.1, key="cap_pct")
+    
     st.divider()
-    st.header("ROA Strategie Parameter (Standard vs. Fighter)")
-    st.caption("Diese Werte definieren die Ranges für die Best/Worst Case Berechnung. Alte Bass-Werte wurden entfernt.")
+    st.subheader("ROA Strategie Ranges (für PDF Report & Vergleich)")
     
     col_std, col_fight = st.columns(2)
-    
     with col_std:
-        st.subheader("Option A: Standard")
+        st.markdown("##### Option A: Standard")
         c_p1, c_p2 = st.columns(2)
         with c_p1: st.number_input("p Min", format="%.3f", step=0.001, key="roa_std_p_min")
         with c_p2: st.number_input("p Max", format="%.3f", step=0.001, key="roa_std_p_max")
@@ -293,7 +335,7 @@ with tab_input:
         with c_c2: st.number_input("Marktanteil Max (C %)", format="%.3f", step=0.01, key="roa_std_c_max")
 
     with col_fight:
-        st.subheader("Option B: Fighter")
+        st.markdown("##### Option B: Fighter")
         f_p1, f_p2 = st.columns(2)
         with f_p1: st.number_input("p Min ", format="%.3f", step=0.001, key="roa_fight_p_min")
         with f_p2: st.number_input("p Max ", format="%.3f", step=0.001, key="roa_fight_p_max")
@@ -349,7 +391,6 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
     # 1. ARPU Bestimmung (Manuell vs. Produkte)
     if st.session_state.get("use_manual_arpu", False):
         base_arpu = st.session_state.get("manual_arpu_val", 1500.0)
-        # Wenn manuell, müssen wir COGS raten (z.B. 15%) oder aus Produkten ableiten? 
         prods = pd.DataFrame(st.session_state["products_df"]).to_dict('records')
         w_arpu, w_cogs = 0.0, 0.0
         has_prod = False
@@ -386,7 +427,6 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
     
     # DISCOUNT ANWENDEN (Fighter Strategie)
     calc_arpu = base_arpu * (1 - (discount_pct / 100.0))
-    # COGS pro Unit bleiben gleich, Ratio steigt relativ
     abs_cogs_per_customer = base_arpu * base_cogs_ratio
     
     # Konstanten
@@ -554,7 +594,7 @@ df_std_worst = calculate_scenario(st.session_state["roa_std_p_min"], st.session_
 df_fight_best = calculate_scenario(st.session_state["roa_fight_p_max"], st.session_state["roa_fight_q_max"], st.session_state["roa_fight_c_max"], st.session_state["roa_fight_discount"])
 df_fight_worst = calculate_scenario(st.session_state["roa_fight_p_min"], st.session_state["roa_fight_q_min"], st.session_state["roa_fight_c_min"], st.session_state["roa_fight_discount"])
 
-# "Main DF" für die Tabellen-Anzeige: Wir nehmen Standard Best Case als Ansicht
+# "Main DF" für die Tabellen-Anzeige: Wir nehmen Standard Best Case als Ansicht (oder Basis wenn gewünscht, hier Standard Best)
 df_main = df_std_best
 
 with col_top2:

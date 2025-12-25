@@ -51,10 +51,10 @@ st.sidebar.success("Eingeloggt als Admin")
 DEFAULTS = {
     # Markt (Basis)
     "sam": 50000.0, "cap_pct": 5.0, "p_pct": 0.03, "q_pct": 0.38, "churn": 5.0, "manual_arpu": 1500.0,
-    # ROA Strategie Defaults (NEU)
+    # ROA Strategie Defaults
     "roa_std_p_min": 0.005, "roa_std_p_max": 0.010,
     "roa_std_q_min": 0.150, "roa_std_q_max": 0.250,
-    "roa_std_c_min": 0.030, "roa_std_c_max": 0.050, # C hier als Marktanteil interpretiert (Cap %)
+    "roa_std_c_min": 0.030, "roa_std_c_max": 0.050,
     
     "roa_fight_p_min": 0.030, "roa_fight_p_max": 0.050,
     "roa_fight_q_min": 0.200, "roa_fight_q_max": 0.300,
@@ -540,7 +540,7 @@ df_main = calculate_scenario(
     p_input=st.session_state["p_pct"], 
     q_input=st.session_state["q_pct"], 
     market_share_input=st.session_state["cap_pct"]/100.0, 
-    discount_factor=0.0
+    discount_pct=0.0
 )
 
 # ==========================================

@@ -50,7 +50,11 @@ st.sidebar.success("Eingeloggt als Admin")
 
 DEFAULTS = {
     # Markt (Basis)
-    "sam": 50000.0, "cap_pct": 5.0, "p_pct": 0.03, "q_pct": 0.38, "churn": 5.0, "manual_arpu": 1500.0,
+    "sam": 50000.0, "cap_pct": 5.0, "churn": 5.0,
+    # ARPU Steuerung
+    "use_manual_arpu": False,
+    "manual_arpu_val": 1500.0,
+    
     # ROA Strategie Defaults
     "roa_std_p_min": 0.005, "roa_std_p_max": 0.010,
     "roa_std_q_min": 0.150, "roa_std_q_max": 0.250,
@@ -188,19 +192,16 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
     # 3. GuV (Fix für fehlende Spalten)
     pdf.add_page(); pdf.section_title("3. GuV")
     cols = ["Jahr", "Umsatz", "Wareneinsatz (COGS)", "Gesamtkosten (OPEX)", "EBITDA", "Abschreibungen", "EBIT", "Steuern", "Jahresüberschuss"]
-    # SAFETY CHECK: Nur vorhandene Spalten drucken
     exist = [c for c in cols if c in df_results.columns]; widths = [15] + [30]*(len(exist)-1)
     pdf.add_dataframe_table(df_results[exist], col_widths=widths)
     
     # 4. Cashflow (Fix für fehlende Spalten)
     pdf.add_page(); pdf.section_title("4. Cashflow & Bilanz")
     cols_cf = ["Jahr", "Jahresüberschuss", "Investitionen (Assets)", "Kreditaufnahme", "Tilgung", "Net Cash Change", "Kasse"]
-    # SAFETY CHECK
     exist_cf = [c for c in cols_cf if c in df_results.columns]
     pdf.add_dataframe_table(df_results[exist_cf])
     
     pdf.ln(5)
-    # Bilanz Spalten checken
     cols_bil = ["Jahr", "Eigenkapital", "Bankdarlehen", "Verb. LL", "Summe Passiva"]
     exist_bil = [c for c in cols_bil if c in df_results.columns]
     if exist_bil:
@@ -217,7 +218,7 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
 # ==========================================
 # 3. UI LAYOUT
 # ==========================================
-st.title("Integriertes Finanzmodell (V3 Robust + ROA)")
+st.title("Integriertes Finanzmodell (V3 Robust + ROA Ranges)")
 
 col_top1, col_top2 = st.columns([1, 3])
 with col_top1:
@@ -255,16 +256,13 @@ tab_input, tab_prod, tab_assets, tab_jobs, tab_cc, tab_dash, tab_guv, tab_cf, ta
 # --- TAB INHALTE ---
 with tab_input:
     # --- Standard Markt Inputs ---
-    st.subheader("Markt & Bass-Modell (Manuelle Basis)")
+    st.subheader("Markt Basisdaten")
     c1, c2 = st.columns(2)
     with c1:
         st.number_input("SAM (Gesamtmarkt)", step=1000.0, key="sam")
-        st.number_input("Marktanteil Ziel %", step=0.1, key="cap_pct")
-        st.info("Bass Diffusions Parameter (Basis):")
-        st.number_input("Innovatoren (p) %", step=0.01, format="%.3f", key="p_pct")
-        st.number_input("Imitatoren (q) %", step=0.1, format="%.3f", key="q_pct")
+        # ARPU Steuerung WEG (Hier gelöscht wie angefordert)
         st.number_input("Churn Rate %", step=0.5, key="churn")
-        st.number_input("Manueller ARPU (Fallback)", step=50.0, key="manual_arpu")
+        # Bass params WEG (Hier gelöscht wie angefordert)
     with c2:
         st.subheader("Finanzierung")
         st.number_input("Eigenkapital (€)", step=5000.0, key="equity")
@@ -279,7 +277,7 @@ with tab_input:
     # --- ROA STRATEGIE PARAMETER ---
     st.divider()
     st.header("ROA Strategie Parameter (Standard vs. Fighter)")
-    st.caption("Diese Werte definieren die Ranges für die Best/Worst Case Berechnung im PDF Report.")
+    st.caption("Definiert die Wachstums-Ranges (Best/Worst Case) für die Simulation.")
     
     col_std, col_fight = st.columns(2)
     
@@ -294,8 +292,8 @@ with tab_input:
         with c_q2: st.number_input("q Max", format="%.3f", step=0.01, key="roa_std_q_max")
         
         c_c1, c_c2 = st.columns(2)
-        with c_c1: st.number_input("C Min (Share %)", format="%.3f", step=0.01, key="roa_std_c_min")
-        with c_c2: st.number_input("C Max (Share %)", format="%.3f", step=0.01, key="roa_std_c_max")
+        with c_c1: st.number_input("Marktanteil Min (C %)", format="%.3f", step=0.01, key="roa_std_c_min")
+        with c_c2: st.number_input("Marktanteil Max (C %)", format="%.3f", step=0.01, key="roa_std_c_max")
 
     with col_fight:
         st.subheader("Option B: Fighter")
@@ -308,14 +306,19 @@ with tab_input:
         with f_q2: st.number_input("q Max ", format="%.3f", step=0.01, key="roa_fight_q_max")
         
         f_c1, f_c2 = st.columns(2)
-        with f_c1: st.number_input("C Min (Share %) ", format="%.3f", step=0.01, key="roa_fight_c_min")
-        with f_c2: st.number_input("C Max (Share %) ", format="%.3f", step=0.01, key="roa_fight_c_max")
+        with f_c1: st.number_input("Marktanteil Min (C %) ", format="%.3f", step=0.01, key="roa_fight_c_min")
+        with f_c2: st.number_input("Marktanteil Max (C %) ", format="%.3f", step=0.01, key="roa_fight_c_max")
         
         st.number_input("Fighter Preis-Discount (%)", step=1.0, key="roa_fight_discount")
 
 
 with tab_prod:
     st.info("Produkte steuern Umsatz & COGS.")
+    # Checkbox für Manuelles ARPU (Neu hinzugefügt)
+    st.checkbox("Manuelles ARPU nutzen?", key="use_manual_arpu")
+    if st.session_state["use_manual_arpu"]:
+        st.number_input("Manueller ARPU (€)", step=50.0, key="manual_arpu_val")
+        
     st.session_state["products_df"] = st.data_editor(st.session_state["products_df"], num_rows="dynamic", use_container_width=True, key="ed_prod")
 
 with tab_assets:
@@ -344,40 +347,52 @@ with tab_cc:
 
 def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
     """
-    Führt die komplette Finanzsimulation für gegebene Bass-Parameter und Preis-Discount durch.
+    Führt die komplette Finanzsimulation durch.
     """
-    
-    # Inputs vorbereiten
-    prods = pd.DataFrame(st.session_state["products_df"]).to_dict('records')
-    jobs = pd.DataFrame(st.session_state["current_jobs_df"]).to_dict('records')
-    ccs = pd.DataFrame(st.session_state["cost_centers_df"]).to_dict('records')
-
-    # 1. Produkt-Mix berechnen (Gewichteter ARPU & COGS)
-    w_arpu, w_cogs = 0.0, 0.0
-    has_prod = False
-    for p in prods:
-        pr = safe_float(p.get("Preis (€)"))
-        if pr > 0:
-            has_prod = True
-            c = safe_float(p.get("Herstellungskosten (COGS €)"))
-            take = safe_float(p.get("Take Rate (%)"))/100
-            months = safe_float(p.get("Wiederkauf alle (Monate)"))
-            rep = safe_float(p.get("Wiederkauf Rate (%)"))/100
-            freq = 1.0
-            if months > 0:
-                cycles = 12.0/months
-                freq = 1.0 + (rep * (cycles - 1)) if cycles >= 1 else 1.0
-            w_arpu += pr*take*freq
-            w_cogs += c*take*freq
-
-    # Base ARPU ermitteln
-    base_arpu = w_arpu if has_prod and w_arpu > 0 else st.session_state["manual_arpu"]
-    base_cogs_ratio = (w_cogs/w_arpu) if (has_prod and w_arpu > 0) else 0.15
+    # 1. ARPU Bestimmung (Manuell vs. Produkte)
+    if st.session_state.get("use_manual_arpu", False):
+        base_arpu = st.session_state.get("manual_arpu_val", 1500.0)
+        # Wenn manuell, müssen wir COGS raten (z.B. 15%) oder aus Produkten ableiten? 
+        # Vereinfachung: wir nehmen die Ratio aus den Produkten falls vorhanden, sonst 15%
+        prods = pd.DataFrame(st.session_state["products_df"]).to_dict('records')
+        w_arpu, w_cogs = 0.0, 0.0
+        has_prod = False
+        for p in prods:
+            pr = safe_float(p.get("Preis (€)"))
+            if pr > 0:
+                has_prod = True
+                c = safe_float(p.get("Herstellungskosten (COGS €)"))
+                w_arpu += pr; w_cogs += c # Simplistic ratio check
+        base_cogs_ratio = (w_cogs/w_arpu) if (has_prod and w_arpu > 0) else 0.15
+        
+    else:
+        # Kalkulation aus Produkten
+        prods = pd.DataFrame(st.session_state["products_df"]).to_dict('records')
+        w_arpu, w_cogs = 0.0, 0.0
+        has_prod = False
+        for p in prods:
+            pr = safe_float(p.get("Preis (€)"))
+            if pr > 0:
+                has_prod = True
+                c = safe_float(p.get("Herstellungskosten (COGS €)"))
+                take = safe_float(p.get("Take Rate (%)"))/100
+                months = safe_float(p.get("Wiederkauf alle (Monate)"))
+                rep = safe_float(p.get("Wiederkauf Rate (%)"))/100
+                freq = 1.0
+                if months > 0:
+                    cycles = 12.0/months
+                    freq = 1.0 + (rep * (cycles - 1)) if cycles >= 1 else 1.0
+                w_arpu += pr*take*freq
+                w_cogs += c*take*freq
+        
+        base_arpu = w_arpu if has_prod and w_arpu > 0 else 1500.0
+        base_cogs_ratio = (w_cogs/w_arpu) if (has_prod and w_arpu > 0) else 0.15
     
     # DISCOUNT ANWENDEN (Fighter Strategie)
     calc_arpu = base_arpu * (1 - (discount_pct / 100.0))
-    # Wir nehmen an COGS bleiben absolut gleich -> Ratio steigt wenn Preis sinkt
-    calc_cogs_abs = base_arpu * base_cogs_ratio 
+    # COGS pro Unit bleiben gleich, Ratio steigt relativ zum gesenkten Preis
+    # Absolute COGS pro Kunde:
+    abs_cogs_per_customer = base_arpu * base_cogs_ratio
     
     # Konstanten
     P = p_input
@@ -398,6 +413,9 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
         "Laptop": ("price_laptop", "ul_laptop"), "Smartphone": ("price_phone", "ul_phone"),
         "Auto": ("price_car", "ul_car"), "LKW": ("price_truck", "ul_truck"), "Büro": ("price_desk", "ul_desk")
     }
+    
+    jobs = pd.DataFrame(st.session_state["current_jobs_df"]).to_dict('records')
+    ccs = pd.DataFrame(st.session_state["cost_centers_df"]).to_dict('records')
 
     for t in range(1, 11):
         row = {"Jahr": t}
@@ -421,10 +439,7 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
         growth = (rev - prev_rev)/prev_rev if t > 1 and prev_rev > 0 else 0.0
         
         # Kosten
-        # COGS sind absolut pro Einheit gleich, also Ratio auf neuen Umsatz anpassen oder absolut rechnen
-        # Hier: Absolut per Kunde berechnet (genauer bei Preisänderung)
-        # Wenn Fighter: Preis sinkt, Marge sinkt. COGS pro Kunde bleiben gleich.
-        cogs = n_t * calc_cogs_abs
+        cogs = n_t * abs_cogs_per_customer
         row["Wareneinsatz (COGS)"] = cogs
         
         # Personal
@@ -441,7 +456,6 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
             fte = max(base, target_fte * (base/base_ftes)) if base_ftes > 0 else 0
             curr_total_fte += fte
             pers_cost += sal * fte * wage_idx * (1 + st.session_state["lnk_pct"]/100)
-            
             for hw in hw_needs:
                 if j.get(hw): hw_needs[hw] += fte
         
@@ -525,7 +539,6 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
         fixed_assets = max(0, fixed_assets + capex - afa)
         retained += net
         
-        # Bilanz Check
         row["Anlagevermögen"] = fixed_assets
         row["Eigenkapital"] = st.session_state["equity"] + retained
         row["Summe Aktiva"] = fixed_assets + cash_end
@@ -535,49 +548,65 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
 
     return pd.DataFrame(results)
 
-# --- BERECHNUNG DES DASHBOARD SZENARIOS (Basis Werte aus Tab 1) ---
-df_main = calculate_scenario(
-    p_input=st.session_state["p_pct"], 
-    q_input=st.session_state["q_pct"], 
-    market_share_input=st.session_state["cap_pct"]/100.0, 
-    discount_pct=0.0
-)
+# ==========================================
+# 5. OUTPUTS & BERECHNUNGEN (RANGES)
+# ==========================================
 
-# ==========================================
-# 5. OUTPUTS
-# ==========================================
+# Berechne die 4 Szenarien für die Ranges
+df_std_best = calculate_scenario(st.session_state["roa_std_p_max"], st.session_state["roa_std_q_max"], st.session_state["roa_std_c_max"], 0.0)
+df_std_worst = calculate_scenario(st.session_state["roa_std_p_min"], st.session_state["roa_std_q_min"], st.session_state["roa_std_c_min"], 0.0)
+df_fight_best = calculate_scenario(st.session_state["roa_fight_p_max"], st.session_state["roa_fight_q_max"], st.session_state["roa_fight_c_max"], st.session_state["roa_fight_discount"])
+df_fight_worst = calculate_scenario(st.session_state["roa_fight_p_min"], st.session_state["roa_fight_q_min"], st.session_state["roa_fight_c_min"], st.session_state["roa_fight_discount"])
+
+# "Main DF" für die Tabellen-Anzeige: Wir nehmen Standard Best Case als Ansicht
+df_main = df_std_best
 
 with col_top2:
     st.write("**PDF Reports (Strategie Szenarien):**")
     c_pdf1, c_pdf2, c_pdf3, c_pdf4 = st.columns(4)
     
-    # 1. Standard Best Case
-    df_std_best = calculate_scenario(st.session_state["roa_std_p_max"], st.session_state["roa_std_q_max"], st.session_state["roa_std_c_max"], 0.0)
+    # 1. Standard Best
     pdf_b_std_best = create_detailed_pdf(df_std_best, st.session_state, pd.DataFrame(st.session_state["current_jobs_df"]), pd.DataFrame(st.session_state["products_df"]), pd.DataFrame(st.session_state["cost_centers_df"]), "Standard (Best Case)")
     with c_pdf1: st.download_button("Standard BEST", pdf_b_std_best, "std_best.pdf", "application/pdf")
 
-    # 2. Standard Worst Case
-    df_std_worst = calculate_scenario(st.session_state["roa_std_p_min"], st.session_state["roa_std_q_min"], st.session_state["roa_std_c_min"], 0.0)
+    # 2. Standard Worst
     pdf_b_std_worst = create_detailed_pdf(df_std_worst, st.session_state, pd.DataFrame(st.session_state["current_jobs_df"]), pd.DataFrame(st.session_state["products_df"]), pd.DataFrame(st.session_state["cost_centers_df"]), "Standard (Worst Case)")
     with c_pdf2: st.download_button("Standard WORST", pdf_b_std_worst, "std_worst.pdf", "application/pdf")
 
-    # 3. Fighter Best Case
-    df_fight_best = calculate_scenario(st.session_state["roa_fight_p_max"], st.session_state["roa_fight_q_max"], st.session_state["roa_fight_c_max"], st.session_state["roa_fight_discount"])
+    # 3. Fighter Best
     pdf_b_fight_best = create_detailed_pdf(df_fight_best, st.session_state, pd.DataFrame(st.session_state["current_jobs_df"]), pd.DataFrame(st.session_state["products_df"]), pd.DataFrame(st.session_state["cost_centers_df"]), "Fighter (Best Case)")
     with c_pdf3: st.download_button("Fighter BEST", pdf_b_fight_best, "fight_best.pdf", "application/pdf")
 
-    # 4. Fighter Worst Case
-    df_fight_worst = calculate_scenario(st.session_state["roa_fight_p_min"], st.session_state["roa_fight_q_min"], st.session_state["roa_fight_c_min"], st.session_state["roa_fight_discount"])
+    # 4. Fighter Worst
     pdf_b_fight_worst = create_detailed_pdf(df_fight_worst, st.session_state, pd.DataFrame(st.session_state["current_jobs_df"]), pd.DataFrame(st.session_state["products_df"]), pd.DataFrame(st.session_state["cost_centers_df"]), "Fighter (Worst Case)")
     with c_pdf4: st.download_button("Fighter WORST", pdf_b_fight_worst, "fight_worst.pdf", "application/pdf")
 
 
 with tab_dash:
     k1, k2, k3 = st.columns(3)
-    k1.metric("Umsatz J10 (Basis)", f"{df_main.iloc[-1]['Umsatz']:,.0f} €")
-    k2.metric("EBITDA J10 (Basis)", f"{df_main.iloc[-1]['EBITDA']:,.0f} €")
-    k3.metric("Kasse J10 (Basis)", f"{df_main.iloc[-1]['Kasse']:,.0f} €")
-    st.line_chart(df_main.set_index("Jahr")[["Umsatz", "Gesamtkosten (OPEX)", "EBITDA"]])
+    k1.metric("Umsatz J10 (Std Best)", f"{df_main.iloc[-1]['Umsatz']:,.0f} €")
+    k2.metric("EBITDA J10 (Std Best)", f"{df_main.iloc[-1]['EBITDA']:,.0f} €")
+    k3.metric("Kasse J10 (Std Best)", f"{df_main.iloc[-1]['Kasse']:,.0f} €")
+    
+    st.subheader("Umsatz-Entwicklung (Strategie Vergleich)")
+    
+    # MATPLOTLIB CHART MIT BÄNDERN
+    fig, ax = plt.subplots(figsize=(10, 5))
+    years = df_main["Jahr"]
+    
+    # Standard Strategie (Blau)
+    ax.fill_between(years, df_std_worst["Umsatz"], df_std_best["Umsatz"], color="#1f77b4", alpha=0.3, label="Standard Strategie (Range)")
+    ax.plot(years, df_std_best["Umsatz"], color="#1f77b4", linewidth=1, alpha=0.5)
+    
+    # Fighter Strategie (Rot)
+    ax.fill_between(years, df_fight_worst["Umsatz"], df_fight_best["Umsatz"], color="#d62728", alpha=0.3, label="Fighter Strategie (Range)")
+    ax.plot(years, df_fight_best["Umsatz"], color="#d62728", linewidth=1, alpha=0.5)
+    
+    ax.set_xlabel("Jahr")
+    ax.set_ylabel("Umsatz (€)")
+    ax.legend(loc="upper left")
+    ax.grid(True, alpha=0.2)
+    st.pyplot(fig)
 
 with tab_guv: st.dataframe(df_main.set_index("Jahr")[["Umsatz", "Wareneinsatz (COGS)", "Gesamtkosten (OPEX)", "EBITDA", "EBIT", "Steuern", "Jahresüberschuss"]].T.style.format("{:,.0f}"))
 with tab_cf: st.dataframe(df_main.set_index("Jahr")[["Jahresüberschuss", "Abschreibungen", "Investitionen (Assets)", "Net Cash Change", "Kasse"]].T.style.format("{:,.0f}"))

@@ -41,7 +41,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-st.set_page_config(page_title="Finanzmodell Pro (Master)", layout="wide")
+st.set_page_config(page_title="Finanzmodell Pro (V4 ROA)", layout="wide")
 st.sidebar.success("Eingeloggt als Admin")
 
 # ==========================================
@@ -49,8 +49,9 @@ st.sidebar.success("Eingeloggt als Admin")
 # ==========================================
 
 DEFAULTS = {
-    # Markt (Basis)
+    # Markt (Basis) - p/q hier entfernt, da sie nun über Strategie kommen
     "sam": 50000.0, "cap_pct": 5.0, "churn": 5.0,
+    
     # ARPU Steuerung
     "use_manual_arpu": False,
     "manual_arpu_val": 1500.0,
@@ -183,19 +184,18 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
     # 2. Inputs
     pdf.add_page(); pdf.section_title("2. Eingaben")
     pdf.add_key_value_table({
-        "SAM": session_data.get("sam"), "Marktanteil Ziel": session_data.get("cap_pct"),
-        "Equity": session_data.get("equity"), "Min Cash": session_data.get("min_cash")
+        "SAM": session_data.get("sam"), "Startkapital": session_data.get("equity"), "Min Cash": session_data.get("min_cash")
     }, "Markt & Finanz")
     if jobs_data is not None: pdf.sub_title("Personal"); pdf.add_dataframe_table(jobs_data[["Job Titel", "Jahresgehalt (€)", "FTE Jahr 1"]].head(10))
     if products_data is not None: pdf.sub_title("Produkte"); pdf.add_dataframe_table(products_data[["Produkt", "Preis (€)", "Herstellungskosten (COGS €)"]])
 
-    # 3. GuV (Fix für fehlende Spalten)
+    # 3. GuV
     pdf.add_page(); pdf.section_title("3. GuV")
     cols = ["Jahr", "Umsatz", "Wareneinsatz (COGS)", "Gesamtkosten (OPEX)", "EBITDA", "Abschreibungen", "EBIT", "Steuern", "Jahresüberschuss"]
     exist = [c for c in cols if c in df_results.columns]; widths = [15] + [30]*(len(exist)-1)
     pdf.add_dataframe_table(df_results[exist], col_widths=widths)
     
-    # 4. Cashflow (Fix für fehlende Spalten)
+    # 4. Cashflow
     pdf.add_page(); pdf.section_title("4. Cashflow & Bilanz")
     cols_cf = ["Jahr", "Jahresüberschuss", "Investitionen (Assets)", "Kreditaufnahme", "Tilgung", "Net Cash Change", "Kasse"]
     exist_cf = [c for c in cols_cf if c in df_results.columns]
@@ -204,9 +204,7 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
     pdf.ln(5)
     cols_bil = ["Jahr", "Eigenkapital", "Bankdarlehen", "Verb. LL", "Summe Passiva"]
     exist_bil = [c for c in cols_bil if c in df_results.columns]
-    if exist_bil:
-        pdf.sub_title("Bilanz Passiva")
-        pdf.add_dataframe_table(df_results[exist_bil])
+    if exist_bil: pdf.sub_title("Bilanz Passiva"); pdf.add_dataframe_table(df_results[exist_bil])
 
     fig2, ax2 = plt.subplots(figsize=(10, 3.5))
     ax2.fill_between(df_results["Jahr"], df_results["Kasse"], color="skyblue", alpha=0.4, label="Kasse")
@@ -218,7 +216,7 @@ def create_detailed_pdf(df_results, session_data, jobs_data, products_data, cc_d
 # ==========================================
 # 3. UI LAYOUT
 # ==========================================
-st.title("Integriertes Finanzmodell (V3 Robust + ROA Ranges)")
+st.title("Finanzmodell Pro (V4 - ROA Strategy)")
 
 col_top1, col_top2 = st.columns([1, 3])
 with col_top1:
@@ -260,9 +258,8 @@ with tab_input:
     c1, c2 = st.columns(2)
     with c1:
         st.number_input("SAM (Gesamtmarkt)", step=1000.0, key="sam")
-        # ARPU Steuerung WEG (Hier gelöscht wie angefordert)
         st.number_input("Churn Rate %", step=0.5, key="churn")
-        # Bass params WEG (Hier gelöscht wie angefordert)
+        
     with c2:
         st.subheader("Finanzierung")
         st.number_input("Eigenkapital (€)", step=5000.0, key="equity")
@@ -277,7 +274,7 @@ with tab_input:
     # --- ROA STRATEGIE PARAMETER ---
     st.divider()
     st.header("ROA Strategie Parameter (Standard vs. Fighter)")
-    st.caption("Definiert die Wachstums-Ranges (Best/Worst Case) für die Simulation.")
+    st.caption("Diese Werte definieren die Ranges für die Best/Worst Case Berechnung. Alte Bass-Werte wurden entfernt.")
     
     col_std, col_fight = st.columns(2)
     
@@ -314,7 +311,7 @@ with tab_input:
 
 with tab_prod:
     st.info("Produkte steuern Umsatz & COGS.")
-    # Checkbox für Manuelles ARPU (Neu hinzugefügt)
+    # Checkbox für Manuelles ARPU
     st.checkbox("Manuelles ARPU nutzen?", key="use_manual_arpu")
     if st.session_state["use_manual_arpu"]:
         st.number_input("Manueller ARPU (€)", step=50.0, key="manual_arpu_val")
@@ -353,7 +350,6 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
     if st.session_state.get("use_manual_arpu", False):
         base_arpu = st.session_state.get("manual_arpu_val", 1500.0)
         # Wenn manuell, müssen wir COGS raten (z.B. 15%) oder aus Produkten ableiten? 
-        # Vereinfachung: wir nehmen die Ratio aus den Produkten falls vorhanden, sonst 15%
         prods = pd.DataFrame(st.session_state["products_df"]).to_dict('records')
         w_arpu, w_cogs = 0.0, 0.0
         has_prod = False
@@ -362,7 +358,7 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
             if pr > 0:
                 has_prod = True
                 c = safe_float(p.get("Herstellungskosten (COGS €)"))
-                w_arpu += pr; w_cogs += c # Simplistic ratio check
+                w_arpu += pr; w_cogs += c 
         base_cogs_ratio = (w_cogs/w_arpu) if (has_prod and w_arpu > 0) else 0.15
         
     else:
@@ -390,8 +386,7 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
     
     # DISCOUNT ANWENDEN (Fighter Strategie)
     calc_arpu = base_arpu * (1 - (discount_pct / 100.0))
-    # COGS pro Unit bleiben gleich, Ratio steigt relativ zum gesenkten Preis
-    # Absolute COGS pro Kunde:
+    # COGS pro Unit bleiben gleich, Ratio steigt relativ
     abs_cogs_per_customer = base_arpu * base_cogs_ratio
     
     # Konstanten
@@ -539,6 +534,7 @@ def calculate_scenario(p_input, q_input, market_share_input, discount_pct=0.0):
         fixed_assets = max(0, fixed_assets + capex - afa)
         retained += net
         
+        # Bilanz Check
         row["Anlagevermögen"] = fixed_assets
         row["Eigenkapital"] = st.session_state["equity"] + retained
         row["Summe Aktiva"] = fixed_assets + cash_end
